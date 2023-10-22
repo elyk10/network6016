@@ -1,0 +1,10 @@
+﻿  main_client.cpp
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\buffer.h(38,17): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\buffer.h(48,21): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(103,49): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(109,4): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(180,11): warning C4477: 'printf' : format string '%s' requires an argument of type 'char *', but variadic argument 1 has type 'int'
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(180,11): warning C4313: 'printf': '%s' in format string conflicts with argument 1 of type 'int'
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(181,17): warning C4474: 'printf' : too many arguments passed for format string
+C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\TCPClient\main_client.cpp(181,17): message : placeholders and their parameters expect 1 variadic arguments, but 2 were provided
+  TCPClient.vcxproj -> C:\Users\Kyle\Documents\fanshawe\networking\23f-TCPExamples\TCPExamples\x64\Debug\TCPClient.exe
