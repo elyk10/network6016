@@ -1,40 +1,57 @@
-// -*- c++ -*-
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
+// https://developers.google.com/protocol-buffers/
 //
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file or at
-// https://developers.google.com/open-source/licenses/bsd
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//     * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Author: kenton@google.com (Kenton Varda)
 //  Based on original Protocol Buffers design by
 //  Sanjay Ghemawat, Jeff Dean, and others.
 
-#include <cstdint>
-#include <memory>
-#include <string>
-#include <vector>
+#include <google/protobuf/wire_format.h>
 
-#include "google/protobuf/descriptor.pb.h"
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/test_util2.h>
+#include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/wire_format_lite.h>
+#include <google/protobuf/testing/googletest.h>
+#include <google/protobuf/stubs/logging.h>
 #include <gmock/gmock.h>
-#include "google/protobuf/testing/googletest.h"
 #include <gtest/gtest.h>
-#include "absl/base/casts.h"
-#include "absl/log/absl_check.h"
-#include "absl/log/scoped_mock_log.h"
-#include "absl/strings/cord.h"
-#include "absl/strings/match.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/dynamic_message.h"
-#include "google/protobuf/io/coded_stream.h"
-#include "google/protobuf/io/zero_copy_stream_impl.h"
-#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
-#include "google/protobuf/test_util2.h"
-#include "google/protobuf/wire_format.h"
-#include "google/protobuf/wire_format_lite.h"
+#include <google/protobuf/stubs/casts.h>
+#include <google/protobuf/stubs/strutil.h>
+#include <google/protobuf/stubs/stl_util.h>
 
 // clang-format off
-#include "google/protobuf/port_def.inc"
+#include <google/protobuf/port_def.inc>
 // clang-format on
 
 namespace google {
@@ -42,23 +59,19 @@ namespace protobuf {
 namespace internal {
 namespace {
 
-inline bool IsOptimizeForCodeSize(const Descriptor* descriptor) {
-  return descriptor->file()->options().optimize_for() == FileOptions::CODE_SIZE;
-}
-
 TEST(WireFormatTest, EnumsInSync) {
   // Verify that WireFormatLite::FieldType and WireFormatLite::CppType match
   // FieldDescriptor::Type and FieldDescriptor::CppType.
 
-  EXPECT_EQ(absl::implicit_cast<int>(FieldDescriptor::MAX_TYPE),
-            absl::implicit_cast<int>(WireFormatLite::MAX_FIELD_TYPE));
-  EXPECT_EQ(absl::implicit_cast<int>(FieldDescriptor::MAX_CPPTYPE),
-            absl::implicit_cast<int>(WireFormatLite::MAX_CPPTYPE));
+  EXPECT_EQ(implicit_cast<int>(FieldDescriptor::MAX_TYPE),
+            implicit_cast<int>(WireFormatLite::MAX_FIELD_TYPE));
+  EXPECT_EQ(implicit_cast<int>(FieldDescriptor::MAX_CPPTYPE),
+            implicit_cast<int>(WireFormatLite::MAX_CPPTYPE));
 
   for (int i = 1; i <= WireFormatLite::MAX_FIELD_TYPE; i++) {
-    EXPECT_EQ(absl::implicit_cast<int>(FieldDescriptor::TypeToCppType(
+    EXPECT_EQ(implicit_cast<int>(FieldDescriptor::TypeToCppType(
                   static_cast<FieldDescriptor::Type>(i))),
-              absl::implicit_cast<int>(WireFormatLite::FieldTypeToCppType(
+              implicit_cast<int>(WireFormatLite::FieldTypeToCppType(
                   static_cast<WireFormatLite::FieldType>(i))));
   }
 }
@@ -480,14 +493,15 @@ TEST(WireFormatTest, SerializeMessageSetVariousWaysAreEqual) {
 
   // Serialize to flat array
   {
-    uint8_t* target = reinterpret_cast<uint8_t*>(&flat_data[0]);
-    uint8_t* end = message_set.SerializeWithCachedSizesToArray(target);
+    uint8* target = reinterpret_cast<uint8*>(::google::protobuf::string_as_array(&flat_data));
+    uint8* end = message_set.SerializeWithCachedSizesToArray(target);
     EXPECT_EQ(size, end - target);
   }
 
   // Serialize to buffer
   {
-    io::ArrayOutputStream array_stream(&stream_data[0], size, 1);
+    io::ArrayOutputStream array_stream(::google::protobuf::string_as_array(&stream_data), size,
+                                       1);
     io::CodedOutputStream output_stream(&array_stream);
     message_set.SerializeWithCachedSizes(&output_stream);
     ASSERT_FALSE(output_stream.HadError());
@@ -560,98 +574,34 @@ TEST(WireFormatTest, ParseMessageSet) {
 
   // Also parse using WireFormat.
   PROTO2_WIREFORMAT_UNITTEST::TestMessageSet dynamic_message_set;
-  io::CodedInputStream input(reinterpret_cast<const uint8_t*>(data.data()),
+  io::CodedInputStream input(reinterpret_cast<const uint8*>(data.data()),
                              data.size());
   ASSERT_TRUE(WireFormat::ParseAndMergePartial(&input, &dynamic_message_set));
   EXPECT_EQ(message_set.DebugString(), dynamic_message_set.DebugString());
 }
 
-TEST(WireFormatTest, MessageSetUnknownButValidTypeId) {
-  const char encoded[] = {
-      013,     // 1: SGROUP
-      032, 2,  // 3:LEN 2
-      010, 0,  // 1:0
-      020, 4,  // 2:4
-      014      // 1: EGROUP
-  };
-  PROTO2_WIREFORMAT_UNITTEST::TestMessageSet message;
-  EXPECT_TRUE(message.ParseFromArray(encoded, sizeof(encoded)));
-}
-
-TEST(WireFormatTest, MessageSetInvalidTypeId) {
-  // "type_id" is 0 and should fail to parse.
-  const char encoded[] = {
-      013,     // 1: SGROUP
-      032, 2,  // 3:LEN 2
-      010, 0,  // 1:0
-      020, 0,  // 2:0
-      014      // 1: EGROUP
-  };
-  PROTO2_WIREFORMAT_UNITTEST::TestMessageSet message;
-  EXPECT_FALSE(message.ParseFromArray(encoded, sizeof(encoded)));
-}
-
-TEST(WireFormatTest, MessageSetNonCanonInvalidTypeId) {
-  // "type_id" is 0 and should fail to parse. uint8_t is used to silence
-  // complaints about narrowing conversion.
-  const uint8_t encoded[] = {
-      013,                               // 1: SGROUP
-      032, 0,                            // 3:LEN 0
-      020, 0x80, 0x80, 0x80, 0x80, 020,  // 2: long-form:2 0
-      014                                // 1: EGROUP
-  };
-  PROTO2_WIREFORMAT_UNITTEST::TestMessageSet message;
-  EXPECT_FALSE(message.ParseFromArray(encoded, sizeof(encoded)));
-}
-
-namespace {
-std::string BuildMessageSetItemStart() {
-  std::string data;
-  {
-    io::StringOutputStream output_stream(&data);
-    io::CodedOutputStream coded_output(&output_stream);
-    coded_output.WriteTag(WireFormatLite::kMessageSetItemStartTag);
-  }
-  return data;
-}
-std::string BuildMessageSetItemEnd() {
-  std::string data;
-  {
-    io::StringOutputStream output_stream(&data);
-    io::CodedOutputStream coded_output(&output_stream);
-    coded_output.WriteTag(WireFormatLite::kMessageSetItemEndTag);
-  }
-  return data;
-}
-std::string BuildMessageSetTestExtension1(int value = 123) {
+TEST(WireFormatTest, ParseMessageSetWithReverseTagOrder) {
   std::string data;
   {
     UNITTEST::TestMessageSetExtension1 message;
-    message.set_i(value);
+    message.set_i(123);
+    // Build a MessageSet manually with its message content put before its
+    // type_id.
     io::StringOutputStream output_stream(&data);
     io::CodedOutputStream coded_output(&output_stream);
+    coded_output.WriteTag(WireFormatLite::kMessageSetItemStartTag);
     // Write the message content first.
     WireFormatLite::WriteTag(WireFormatLite::kMessageSetMessageNumber,
                              WireFormatLite::WIRETYPE_LENGTH_DELIMITED,
                              &coded_output);
     coded_output.WriteVarint32(message.ByteSizeLong());
     message.SerializeWithCachedSizes(&coded_output);
-  }
-  return data;
-}
-std::string BuildMessageSetItemTypeId(int extension_number) {
-  std::string data;
-  {
-    io::StringOutputStream output_stream(&data);
-    io::CodedOutputStream coded_output(&output_stream);
+    // Write the type id.
+    uint32 type_id = message.GetDescriptor()->extension(0)->number();
     WireFormatLite::WriteUInt32(WireFormatLite::kMessageSetTypeIdNumber,
-                                extension_number, &coded_output);
+                                type_id, &coded_output);
+    coded_output.WriteTag(WireFormatLite::kMessageSetItemEndTag);
   }
-  return data;
-}
-void ValidateTestMessageSet(const std::string& test_case,
-                            const std::string& data) {
-  SCOPED_TRACE(test_case);
   {
     PROTO2_WIREFORMAT_UNITTEST::TestMessageSet message_set;
     ASSERT_TRUE(message_set.ParseFromString(data));
@@ -661,16 +611,11 @@ void ValidateTestMessageSet(const std::string& test_case,
                   .GetExtension(
                       UNITTEST::TestMessageSetExtension1::message_set_extension)
                   .i());
-
-    // Make sure it does not contain anything else.
-    message_set.ClearExtension(
-        UNITTEST::TestMessageSetExtension1::message_set_extension);
-    EXPECT_EQ(message_set.SerializeAsString(), "");
   }
   {
     // Test parse the message via Reflection.
     PROTO2_WIREFORMAT_UNITTEST::TestMessageSet message_set;
-    io::CodedInputStream input(reinterpret_cast<const uint8_t*>(data.data()),
+    io::CodedInputStream input(reinterpret_cast<const uint8*>(data.data()),
                                data.size());
     EXPECT_TRUE(WireFormat::ParseAndMergePartial(&input, &message_set));
     EXPECT_TRUE(input.ConsumedEntireMessage());
@@ -681,61 +626,6 @@ void ValidateTestMessageSet(const std::string& test_case,
                       UNITTEST::TestMessageSetExtension1::message_set_extension)
                   .i());
   }
-  {
-    // Test parse the message via DynamicMessage.
-    DynamicMessageFactory factory;
-    std::unique_ptr<Message> msg(
-        factory
-            .GetPrototype(
-                PROTO2_WIREFORMAT_UNITTEST::TestMessageSet::descriptor())
-            ->New());
-    msg->ParseFromString(data);
-    auto* reflection = msg->GetReflection();
-    std::vector<const FieldDescriptor*> fields;
-    reflection->ListFields(*msg, &fields);
-    ASSERT_EQ(fields.size(), 1);
-    const auto& sub = reflection->GetMessage(*msg, fields[0]);
-    reflection = sub.GetReflection();
-    EXPECT_EQ(123, reflection->GetInt32(
-                       sub, sub.GetDescriptor()->FindFieldByName("i")));
-  }
-}
-}  // namespace
-
-TEST(WireFormatTest, ParseMessageSetWithAnyTagOrder) {
-  std::string start = BuildMessageSetItemStart();
-  std::string end = BuildMessageSetItemEnd();
-  std::string id = BuildMessageSetItemTypeId(
-      UNITTEST::TestMessageSetExtension1::descriptor()->extension(0)->number());
-  std::string message = BuildMessageSetTestExtension1();
-
-  ValidateTestMessageSet("id + message", start + id + message + end);
-  ValidateTestMessageSet("message + id", start + message + id + end);
-}
-
-TEST(WireFormatTest, ParseMessageSetWithDuplicateTags) {
-  std::string start = BuildMessageSetItemStart();
-  std::string end = BuildMessageSetItemEnd();
-  std::string id = BuildMessageSetItemTypeId(
-      UNITTEST::TestMessageSetExtension1::descriptor()->extension(0)->number());
-  std::string other_id = BuildMessageSetItemTypeId(123456);
-  std::string message = BuildMessageSetTestExtension1();
-  std::string other_message = BuildMessageSetTestExtension1(321);
-
-  // Double id
-  ValidateTestMessageSet("id + other_id + message",
-                         start + id + other_id + message + end);
-  ValidateTestMessageSet("id + message + other_id",
-                         start + id + message + other_id + end);
-  ValidateTestMessageSet("message + id + other_id",
-                         start + message + id + other_id + end);
-  // Double message
-  ValidateTestMessageSet("id + message + other_message",
-                         start + id + message + other_message + end);
-  ValidateTestMessageSet("message + id + other_message",
-                         start + message + id + other_message + end);
-  ValidateTestMessageSet("message + other_message + id",
-                         start + message + other_message + id + end);
 }
 
 void SerializeReverseOrder(
@@ -770,7 +660,7 @@ void SerializeReverseOrder(
   coded_output->WriteVarint32(message.GetCachedSize());
   SerializeReverseOrder(message, coded_output);
   // Write the type id.
-  uint32_t type_id = message.GetDescriptor()->extension(0)->number();
+  uint32 type_id = message.GetDescriptor()->extension(0)->number();
   WireFormatLite::WriteUInt32(WireFormatLite::kMessageSetTypeIdNumber, type_id,
                               coded_output);
   coded_output->WriteTag(WireFormatLite::kMessageSetItemEndTag);
@@ -886,43 +776,6 @@ TEST(WireFormatTest, RecursionLimit) {
   }
 }
 
-TEST(WireFormatTest, LargeRecursionLimit) {
-  const int kLargeLimit = io::CodedInputStream::GetDefaultRecursionLimit() + 50;
-  UNITTEST::TestRecursiveMessage src, dst, *a;
-  a = src.mutable_a();
-  for (int i = 0; i < kLargeLimit - 1; i++) {
-    a = a->mutable_a();
-  }
-  a->set_i(1);
-
-  std::string data = src.SerializeAsString();
-  {
-    // Parse with default recursion limit. Should fail.
-    io::ArrayInputStream raw_input(data.data(), data.size());
-    io::CodedInputStream input(&raw_input);
-    ASSERT_FALSE(dst.ParseFromCodedStream(&input));
-  }
-
-  {
-    // Parse with custom recursion limit. Should pass.
-    io::ArrayInputStream raw_input(data.data(), data.size());
-    io::CodedInputStream input(&raw_input);
-    input.SetRecursionLimit(kLargeLimit);
-    ASSERT_TRUE(dst.ParseFromCodedStream(&input));
-  }
-
-  // Verifies the recursion depth.
-  int depth = 1;
-  a = dst.mutable_a();
-  while (a->has_a()) {
-    a = a->mutable_a();
-    depth++;
-  }
-
-  EXPECT_EQ(a->i(), 1);
-  EXPECT_EQ(depth, kLargeLimit);
-}
-
 TEST(WireFormatTest, UnknownFieldRecursionLimit) {
   UNITTEST::TestEmptyMessage message;
   message.mutable_unknown_fields()
@@ -952,19 +805,13 @@ TEST(WireFormatTest, UnknownFieldRecursionLimit) {
 }
 
 TEST(WireFormatTest, ZigZag) {
-  // shorthands to avoid excessive line-wrapping
-  auto ZigZagEncode32 = [](int32_t x) {
-    return WireFormatLite::ZigZagEncode32(x);
-  };
-  auto ZigZagDecode32 = [](uint32_t x) {
-    return WireFormatLite::ZigZagDecode32(x);
-  };
-  auto ZigZagEncode64 = [](int64_t x) {
-    return WireFormatLite::ZigZagEncode64(x);
-  };
-  auto ZigZagDecode64 = [](uint64_t x) {
-    return WireFormatLite::ZigZagDecode64(x);
-  };
+// avoid line-wrapping
+#define LL(x) static_cast<int64_t>(ULL(x))
+#define ULL(x) uint64_t{x##u}
+#define ZigZagEncode32(x) WireFormatLite::ZigZagEncode32(x)
+#define ZigZagDecode32(x) WireFormatLite::ZigZagDecode32(x)
+#define ZigZagEncode64(x) WireFormatLite::ZigZagEncode64(x)
+#define ZigZagDecode64(x) WireFormatLite::ZigZagDecode64(x)
 
   EXPECT_EQ(0u, ZigZagEncode32(0));
   EXPECT_EQ(1u, ZigZagEncode32(-1));
@@ -988,29 +835,23 @@ TEST(WireFormatTest, ZigZag) {
   EXPECT_EQ(1u, ZigZagEncode64(-1));
   EXPECT_EQ(2u, ZigZagEncode64(1));
   EXPECT_EQ(3u, ZigZagEncode64(-2));
-  EXPECT_EQ(0x000000007FFFFFFEu, ZigZagEncode64(0x000000003FFFFFFF));
-  EXPECT_EQ(0x000000007FFFFFFFu,
-            ZigZagEncode64(absl::bit_cast<int64_t>(0xFFFFFFFFC0000000)));
-  EXPECT_EQ(0x00000000FFFFFFFEu, ZigZagEncode64(0x000000007FFFFFFF));
-  EXPECT_EQ(0x00000000FFFFFFFFu,
-            ZigZagEncode64(absl::bit_cast<int64_t>(0xFFFFFFFF80000000)));
-  EXPECT_EQ(0xFFFFFFFFFFFFFFFEu, ZigZagEncode64(0x7FFFFFFFFFFFFFFF));
-  EXPECT_EQ(0xFFFFFFFFFFFFFFFFu,
-            ZigZagEncode64(absl::bit_cast<int64_t>(0x8000000000000000)));
+  EXPECT_EQ(ULL(0x000000007FFFFFFE), ZigZagEncode64(LL(0x000000003FFFFFFF)));
+  EXPECT_EQ(ULL(0x000000007FFFFFFF), ZigZagEncode64(LL(0xFFFFFFFFC0000000)));
+  EXPECT_EQ(ULL(0x00000000FFFFFFFE), ZigZagEncode64(LL(0x000000007FFFFFFF)));
+  EXPECT_EQ(ULL(0x00000000FFFFFFFF), ZigZagEncode64(LL(0xFFFFFFFF80000000)));
+  EXPECT_EQ(ULL(0xFFFFFFFFFFFFFFFE), ZigZagEncode64(LL(0x7FFFFFFFFFFFFFFF)));
+  EXPECT_EQ(ULL(0xFFFFFFFFFFFFFFFF), ZigZagEncode64(LL(0x8000000000000000)));
 
   EXPECT_EQ(0, ZigZagDecode64(0u));
   EXPECT_EQ(-1, ZigZagDecode64(1u));
   EXPECT_EQ(1, ZigZagDecode64(2u));
   EXPECT_EQ(-2, ZigZagDecode64(3u));
-  EXPECT_EQ(0x000000003FFFFFFF, ZigZagDecode64(0x000000007FFFFFFEu));
-  EXPECT_EQ(absl::bit_cast<int64_t>(0xFFFFFFFFC0000000),
-            ZigZagDecode64(0x000000007FFFFFFFu));
-  EXPECT_EQ(0x000000007FFFFFFF, ZigZagDecode64(0x00000000FFFFFFFEu));
-  EXPECT_EQ(absl::bit_cast<int64_t>(0xFFFFFFFF80000000),
-            ZigZagDecode64(0x00000000FFFFFFFFu));
-  EXPECT_EQ(0x7FFFFFFFFFFFFFFF, ZigZagDecode64(0xFFFFFFFFFFFFFFFEu));
-  EXPECT_EQ(absl::bit_cast<int64_t>(0x8000000000000000),
-            ZigZagDecode64(0xFFFFFFFFFFFFFFFFu));
+  EXPECT_EQ(LL(0x000000003FFFFFFF), ZigZagDecode64(ULL(0x000000007FFFFFFE)));
+  EXPECT_EQ(LL(0xFFFFFFFFC0000000), ZigZagDecode64(ULL(0x000000007FFFFFFF)));
+  EXPECT_EQ(LL(0x000000007FFFFFFF), ZigZagDecode64(ULL(0x00000000FFFFFFFE)));
+  EXPECT_EQ(LL(0xFFFFFFFF80000000), ZigZagDecode64(ULL(0x00000000FFFFFFFF)));
+  EXPECT_EQ(LL(0x7FFFFFFFFFFFFFFF), ZigZagDecode64(ULL(0xFFFFFFFFFFFFFFFE)));
+  EXPECT_EQ(LL(0x8000000000000000), ZigZagDecode64(ULL(0xFFFFFFFFFFFFFFFF)));
 
   // Some easier-to-verify round-trip tests.  The inputs (other than 0, 1, -1)
   // were chosen semi-randomly via keyboard bashing.
@@ -1026,9 +867,10 @@ TEST(WireFormatTest, ZigZag) {
   EXPECT_EQ(14927, ZigZagDecode64(ZigZagEncode64(14927)));
   EXPECT_EQ(-3612, ZigZagDecode64(ZigZagEncode64(-3612)));
 
-  EXPECT_EQ(856912304801416, ZigZagDecode64(ZigZagEncode64(856912304801416)));
-  EXPECT_EQ(-75123905439571256,
-            ZigZagDecode64(ZigZagEncode64(-75123905439571256)));
+  EXPECT_EQ(LL(856912304801416),
+            ZigZagDecode64(ZigZagEncode64(LL(856912304801416))));
+  EXPECT_EQ(LL(-75123905439571256),
+            ZigZagDecode64(ZigZagEncode64(LL(-75123905439571256))));
 }
 
 TEST(WireFormatTest, RepeatedScalarsDifferentTagSizes) {
@@ -1071,7 +913,7 @@ TEST(WireFormatTest, RepeatedScalarsDifferentTagSizes) {
 }
 
 TEST(WireFormatTest, CompatibleTypes) {
-  const int64_t data = 0x100000000LL;
+  const int64 data = 0x100000000LL;
   UNITTEST::Int64Message msg1;
   msg1.set_data(data);
   std::string serialized;
@@ -1085,17 +927,17 @@ TEST(WireFormatTest, CompatibleTypes) {
   // Test int64 is compatible with uint64
   UNITTEST::Uint64Message msg3;
   ASSERT_TRUE(msg3.ParseFromString(serialized));
-  ASSERT_EQ(static_cast<uint64_t>(data), msg3.data());
+  ASSERT_EQ(static_cast<uint64>(data), msg3.data());
 
   // Test int64 is compatible with int32
   UNITTEST::Int32Message msg4;
   ASSERT_TRUE(msg4.ParseFromString(serialized));
-  ASSERT_EQ(static_cast<int32_t>(data), msg4.data());
+  ASSERT_EQ(static_cast<int32>(data), msg4.data());
 
   // Test int64 is compatible with uint32
   UNITTEST::Uint32Message msg5;
   ASSERT_TRUE(msg5.ParseFromString(serialized));
-  ASSERT_EQ(static_cast<uint32_t>(data), msg5.data());
+  ASSERT_EQ(static_cast<uint32>(data), msg5.data());
 }
 
 class Proto3PrimitiveRepeatedWireFormatTest : public ::testing::Test {
@@ -1237,7 +1079,7 @@ class Proto3PrimitiveRepeatedWireFormatTest : public ::testing::Test {
 
     message->Clear();
     io::CodedInputStream input(
-        reinterpret_cast<const uint8_t*>(compatible_data.data()),
+        reinterpret_cast<const uint8*>(compatible_data.data()),
         compatible_data.size());
     WireFormat::ParseAndMergePartial(&input, message);
     ExpectProto3PrimitiveRepeatedFieldsSet(*message);
@@ -1268,7 +1110,7 @@ class WireFormatInvalidInputTest : public testing::Test {
     const FieldDescriptor* field =
         UNITTEST::TestAllTypes::descriptor()->FindFieldByName(
             "optional_nested_message");
-    ABSL_CHECK(field != nullptr);
+    GOOGLE_CHECK(field != nullptr);
 
     std::string result;
 
@@ -1290,7 +1132,7 @@ class WireFormatInvalidInputTest : public testing::Test {
                                bool include_end_tag) {
     const FieldDescriptor* field =
         UNITTEST::TestAllTypes::descriptor()->FindFieldByName("optionalgroup");
-    ABSL_CHECK(field != nullptr);
+    GOOGLE_CHECK(field != nullptr);
 
     std::string result;
 
@@ -1447,8 +1289,8 @@ bool ReadMessage(const std::string& wire_buffer, T* message) {
 class Utf8ValidationTest : public ::testing::Test {
  protected:
   Utf8ValidationTest() {}
-  ~Utf8ValidationTest() override {}
-  void SetUp() override {
+  virtual ~Utf8ValidationTest() {}
+  virtual void SetUp() {
   }
 
 };
@@ -1458,20 +1300,21 @@ TEST_F(Utf8ValidationTest, WriteInvalidUTF8String) {
   UNITTEST::OneString input;
   std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, absl::StrCat(
-                          "String field '", UNITTEST_PACKAGE_NAME,
-                          ".OneString.data' "
-                          "contains invalid UTF-8 data when "
-                          "serializing a protocol buffer. Use the "
-                          "'bytes' type if you intend to send raw bytes. ")));
-#else
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     WriteMessage(kInvalidUTF8String, &input, &wire_buffer);
+    errors = log.GetMessages(ERROR);
   }
+#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
+  EXPECT_THAT(errors,
+              testing::ElementsAre(
+                  "String field '" + std::string(UNITTEST_PACKAGE_NAME) +
+                  ".OneString.data' "
+                  "contains invalid UTF-8 data when "
+                  "serializing a protocol buffer. Use the "
+                  "'bytes' type if you intend to send raw bytes. "));
+#else
+  ASSERT_EQ(0, errors.size());
+#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
 }
 
 
@@ -1482,32 +1325,35 @@ TEST_F(Utf8ValidationTest, ReadInvalidUTF8String) {
   UNITTEST::OneString output;
   std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, absl::StrCat(
-                          "String field '", UNITTEST_PACKAGE_NAME,
-                          ".OneString.data' "
-                          "contains invalid UTF-8 data when "
-                          "parsing a protocol buffer. Use the "
-                          "'bytes' type if you intend to send raw bytes. ")));
-#else
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     ReadMessage(wire_buffer, &output);
+    errors = log.GetMessages(ERROR);
   }
+#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
+  EXPECT_THAT(errors,
+              testing::ElementsAre(
+                  "String field '" + std::string(UNITTEST_PACKAGE_NAME) +
+                  ".OneString.data' "
+                  "contains invalid UTF-8 data when "
+                  "parsing a protocol buffer. Use the "
+                  "'bytes' type if you intend to send raw bytes. "));
+
+#else
+  ASSERT_EQ(0, errors.size());
+#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
 }
 
 
 TEST_F(Utf8ValidationTest, WriteValidUTF8String) {
   std::string wire_buffer;
   UNITTEST::OneString input;
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     WriteMessage(kValidUTF8String, &input, &wire_buffer);
+    errors = log.GetMessages(ERROR);
   }
+  ASSERT_EQ(0, errors.size());
 }
 
 TEST_F(Utf8ValidationTest, ReadValidUTF8String) {
@@ -1515,12 +1361,13 @@ TEST_F(Utf8ValidationTest, ReadValidUTF8String) {
   UNITTEST::OneString input;
   WriteMessage(kValidUTF8String, &input, &wire_buffer);
   UNITTEST::OneString output;
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     ReadMessage(wire_buffer, &output);
+    errors = log.GetMessages(ERROR);
   }
+  ASSERT_EQ(0, errors.size());
   EXPECT_EQ(input.data(), output.data());
 }
 
@@ -1528,12 +1375,13 @@ TEST_F(Utf8ValidationTest, ReadValidUTF8String) {
 TEST_F(Utf8ValidationTest, WriteArbitraryBytes) {
   std::string wire_buffer;
   UNITTEST::OneBytes input;
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     WriteMessage(kInvalidUTF8String, &input, &wire_buffer);
+    errors = log.GetMessages(ERROR);
   }
+  ASSERT_EQ(0, errors.size());
 }
 
 TEST_F(Utf8ValidationTest, ReadArbitraryBytes) {
@@ -1541,12 +1389,13 @@ TEST_F(Utf8ValidationTest, ReadArbitraryBytes) {
   UNITTEST::OneBytes input;
   WriteMessage(kInvalidUTF8String, &input, &wire_buffer);
   UNITTEST::OneBytes output;
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     ReadMessage(wire_buffer, &output);
+    errors = log.GetMessages(ERROR);
   }
+  ASSERT_EQ(0, errors.size());
   EXPECT_EQ(input.data(), output.data());
 }
 
@@ -1558,16 +1407,17 @@ TEST_F(Utf8ValidationTest, ParseRepeatedString) {
   std::string wire_buffer = input.SerializeAsString();
 
   UNITTEST::MoreString output;
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(2);
-#else
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     ReadMessage(wire_buffer, &output);
+    errors = log.GetMessages(ERROR);
   }
+#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
+  ASSERT_EQ(2, errors.size());
+#else
+  ASSERT_EQ(0, errors.size());
+#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
   EXPECT_EQ(wire_buffer, output.SerializeAsString());
 }
 
@@ -1576,25 +1426,28 @@ TEST_F(Utf8ValidationTest, ParseRepeatedString) {
 TEST_F(Utf8ValidationTest, OldVerifyUTF8String) {
   std::string data(kInvalidUTF8String);
 
+  std::vector<std::string> errors;
   {
-    absl::ScopedMockLog log(absl::MockLogDefault::kDisallowUnexpected);
-#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::StartsWith(
-                       "String field contains invalid UTF-8 data when "
-                       "serializing a protocol buffer. Use the "
-                       "'bytes' type if you intend to send raw bytes.")));
-#else
-    EXPECT_CALL(log, Log(absl::LogSeverity::kError, testing::_, testing::_)).Times(0);
-#endif  // GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
-    log.StartCapturingLogs();
+    ScopedMemoryLog log;
     WireFormat::VerifyUTF8String(data.data(), data.size(),
                                  WireFormat::SERIALIZE);
+    errors = log.GetMessages(ERROR);
   }
+#ifdef GOOGLE_PROTOBUF_UTF8_VALIDATION_ENABLED
+  ASSERT_EQ(1, errors.size());
+  EXPECT_TRUE(
+      HasPrefixString(errors[0],
+                       "String field contains invalid UTF-8 data when "
+                       "serializing a protocol buffer. Use the "
+                       "'bytes' type if you intend to send raw bytes."));
+#else
+  ASSERT_EQ(0, errors.size());
+#endif
 }
 
 
 TEST(RepeatedVarint, Int32) {
-  RepeatedField<int32_t> v;
+  RepeatedField<int32> v;
 
   // Insert -2^n, 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1613,7 +1466,7 @@ TEST(RepeatedVarint, Int32) {
 }
 
 TEST(RepeatedVarint, Int64) {
-  RepeatedField<int64_t> v;
+  RepeatedField<int64> v;
 
   // Insert -2^n, 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1632,7 +1485,7 @@ TEST(RepeatedVarint, Int64) {
 }
 
 TEST(RepeatedVarint, SInt32) {
-  RepeatedField<int32_t> v;
+  RepeatedField<int32> v;
 
   // Insert -2^n, 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1651,7 +1504,7 @@ TEST(RepeatedVarint, SInt32) {
 }
 
 TEST(RepeatedVarint, SInt64) {
-  RepeatedField<int64_t> v;
+  RepeatedField<int64> v;
 
   // Insert -2^n, 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1670,7 +1523,7 @@ TEST(RepeatedVarint, SInt64) {
 }
 
 TEST(RepeatedVarint, UInt32) {
-  RepeatedField<uint32_t> v;
+  RepeatedField<uint32> v;
 
   // Insert 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1688,7 +1541,7 @@ TEST(RepeatedVarint, UInt32) {
 }
 
 TEST(RepeatedVarint, UInt64) {
-  RepeatedField<uint64_t> v;
+  RepeatedField<uint64> v;
 
   // Insert 2^n and 2^n-1.
   for (int n = 0; n < 10; n++) {
@@ -1729,4 +1582,4 @@ TEST(RepeatedVarint, Enum) {
 }  // namespace protobuf
 }  // namespace google
 
-#include "google/protobuf/port_undef.inc"
+#include <google/protobuf/port_undef.inc>

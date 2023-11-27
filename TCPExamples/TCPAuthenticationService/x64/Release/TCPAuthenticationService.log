@@ -1,0 +1,10 @@
+﻿  main_autentication_server.cpp
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPAuthenticationService\main_autentication_server.cpp(237,52): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPAuthenticationService\main_autentication_server.cpp(243,7): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPAuthenticationService\main_autentication_server.cpp(324,52): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPAuthenticationService\main_autentication_server.cpp(330,7): warning C4267: '=': conversion from 'size_t' to 'uint32_t', possible loss of data
+  Generating code
+  Previous IPDB and IOBJ mismatch, fall back to full compilation.
+  All 285 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  TCPAuthenticationService.vcxproj -> C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\x64\Release\TCPAuthenticationService.exe

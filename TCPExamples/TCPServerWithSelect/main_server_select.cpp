@@ -103,6 +103,17 @@ int main(int arg, char** argv)
 	}
 	printf("listen successful\n");
 
+	//// Connect
+	//result = connect(serverSocket, info->ai_addr, (int)info->ai_addrlen);
+	//if (serverSocket == INVALID_SOCKET) {
+	//	printf("connect failed with error %d\n", WSAGetLastError());
+	//	closesocket(serverSocket);
+	//	freeaddrinfo(info);
+	//	WSACleanup();
+	//	return 1;
+	//}
+	//printf("Connect to the server successfully!\n");
+
 
 	std::vector<SOCKET> activeConnections;
 
@@ -158,7 +169,7 @@ int main(int arg, char** argv)
 				// Handle receiving data with a recv call
 				//char buffer[bufSize];
 				const int bufSize = 512;
-				network::Buffer buffer(bufSize); 
+				network::Buffer buffer(bufSize);  
 
 				// https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-recv
 				// result 

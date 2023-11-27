@@ -1,9 +1,32 @@
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
+// https://developers.google.com/protocol-buffers/
 //
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file or at
-// https://developers.google.com/open-source/licenses/bsd
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//     * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Author: kenton@google.com (Kenton Varda)
 //  Based on original Protocol Buffers design by
@@ -11,17 +34,19 @@
 //
 // This file makes extensive use of RFC 3092.  :)
 
-#include "google/protobuf/descriptor_database.h"
+#include <google/protobuf/descriptor_database.h>
 
 #include <algorithm>
 #include <memory>
 
-#include "google/protobuf/descriptor.pb.h"
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/text_format.h>
 #include <gmock/gmock.h>
-#include "google/protobuf/testing/googletest.h"
+#include <google/protobuf/testing/googletest.h>
 #include <gtest/gtest.h>
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/text_format.h"
 
 
 namespace google {
@@ -547,29 +572,6 @@ TEST(SimpleDescriptorDatabaseExtraTest, FindAllMessageNames) {
   EXPECT_THAT(messages, ::testing::UnorderedElementsAre("foo.Foo", "Bar"));
 }
 
-TEST(SimpleDescriptorDatabaseExtraTest, AddUnowned) {
-  FileDescriptorProto f;
-  f.set_name("foo.proto");
-  f.set_package("foo");
-  f.add_message_type()->set_name("Foo");
-
-  FileDescriptorProto b;
-  b.set_name("bar.proto");
-  b.set_package("");
-  b.add_message_type()->set_name("Bar");
-
-  SimpleDescriptorDatabase db;
-  db.AddUnowned(&f);
-  db.AddUnowned(&b);
-
-  std::vector<std::string> packages;
-  EXPECT_TRUE(db.FindAllPackageNames(&packages));
-  EXPECT_THAT(packages, ::testing::UnorderedElementsAre("foo", ""));
-  std::vector<std::string> messages;
-  EXPECT_TRUE(db.FindAllMessageNames(&messages));
-  EXPECT_THAT(messages, ::testing::UnorderedElementsAre("foo.Foo", "Bar"));
-}
-
 // ===================================================================
 
 class MergedDescriptorDatabaseTest : public testing::Test {
@@ -578,7 +580,7 @@ class MergedDescriptorDatabaseTest : public testing::Test {
       : forward_merged_(&database1_, &database2_),
         reverse_merged_(&database2_, &database1_) {}
 
-  void SetUp() override {
+  virtual void SetUp() {
     AddToDatabase(
         &database1_,
         "name: \"foo.proto\" "
@@ -795,13 +797,6 @@ TEST_F(MergedDescriptorDatabaseTest, FindAllExtensionNumbers) {
     std::vector<int> numbers;
     EXPECT_FALSE(reverse_merged_.FindAllExtensionNumbers("Blah", &numbers));
   }
-}
-
-TEST_F(MergedDescriptorDatabaseTest, FindAllFileNames) {
-  std::vector<std::string> files;
-  EXPECT_TRUE(forward_merged_.FindAllFileNames(&files));
-  EXPECT_THAT(files, ::testing::UnorderedElementsAre("foo.proto", "bar.proto",
-                                                     "baz.proto", "baz.proto"));
 }
 
 

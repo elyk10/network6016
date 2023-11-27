@@ -12,6 +12,9 @@
 #include <string>
 #include <iostream>
 
+#include "authenticationProtoBuf.pb.h"
+ 
+
 #include "buffer.h"
 
 struct PacketHeader

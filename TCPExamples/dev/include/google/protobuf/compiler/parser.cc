@@ -1,9 +1,32 @@
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
+// https://developers.google.com/protocol-buffers/
 //
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file or at
-// https://developers.google.com/open-source/licenses/bsd
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//     * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Author: kenton@google.com (Kenton Varda)
 //  Based on original Protocol Buffers design by
@@ -11,78 +34,65 @@
 //
 // Recursive descent FTW.
 
-#include "google/protobuf/compiler/parser.h"
+#include <google/protobuf/compiler/parser.h>
 
 #include <float.h>
 
-#include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <string>
-#include <tuple>
-#include <utility>
-#include <vector>
+#include <unordered_map>
+#include <unordered_set>
 
-#include "absl/base/casts.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/log/absl_check.h"
-#include "absl/log/absl_log.h"
-#include "absl/strings/ascii.h"
-#include "absl/strings/escaping.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/descriptor.pb.h"
-#include "google/protobuf/io/strtod.h"
-#include "google/protobuf/io/tokenizer.h"
-#include "google/protobuf/port.h"
-#include "google/protobuf/wire_format.h"
-
-// Must be included last.
-#include "google/protobuf/port_def.inc"
+#include <google/protobuf/stubs/casts.h>
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/io/tokenizer.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/wire_format.h>
+#include <google/protobuf/stubs/strutil.h>
+#include <google/protobuf/stubs/map_util.h>
+#include <google/protobuf/stubs/hash.h>
 
 namespace google {
 namespace protobuf {
 namespace compiler {
+
+using internal::WireFormat;
+
 namespace {
 
-using ::google::protobuf::internal::DownCast;
+typedef std::unordered_map<std::string, FieldDescriptorProto::Type> TypeNameMap;
 
-using TypeNameMap =
-    absl::flat_hash_map<absl::string_view, FieldDescriptorProto::Type>;
+TypeNameMap MakeTypeNameTable() {
+  TypeNameMap result;
 
-const TypeNameMap& GetTypeNameTable() {
-  static auto* table = new auto([]() {
-    TypeNameMap result;
+  result["double"] = FieldDescriptorProto::TYPE_DOUBLE;
+  result["float"] = FieldDescriptorProto::TYPE_FLOAT;
+  result["uint64"] = FieldDescriptorProto::TYPE_UINT64;
+  result["fixed64"] = FieldDescriptorProto::TYPE_FIXED64;
+  result["fixed32"] = FieldDescriptorProto::TYPE_FIXED32;
+  result["bool"] = FieldDescriptorProto::TYPE_BOOL;
+  result["string"] = FieldDescriptorProto::TYPE_STRING;
+  result["group"] = FieldDescriptorProto::TYPE_GROUP;
 
-    result["double"] = FieldDescriptorProto::TYPE_DOUBLE;
-    result["float"] = FieldDescriptorProto::TYPE_FLOAT;
-    result["uint64"] = FieldDescriptorProto::TYPE_UINT64;
-    result["fixed64"] = FieldDescriptorProto::TYPE_FIXED64;
-    result["fixed32"] = FieldDescriptorProto::TYPE_FIXED32;
-    result["bool"] = FieldDescriptorProto::TYPE_BOOL;
-    result["string"] = FieldDescriptorProto::TYPE_STRING;
-    result["group"] = FieldDescriptorProto::TYPE_GROUP;
+  result["bytes"] = FieldDescriptorProto::TYPE_BYTES;
+  result["uint32"] = FieldDescriptorProto::TYPE_UINT32;
+  result["sfixed32"] = FieldDescriptorProto::TYPE_SFIXED32;
+  result["sfixed64"] = FieldDescriptorProto::TYPE_SFIXED64;
+  result["int32"] = FieldDescriptorProto::TYPE_INT32;
+  result["int64"] = FieldDescriptorProto::TYPE_INT64;
+  result["sint32"] = FieldDescriptorProto::TYPE_SINT32;
+  result["sint64"] = FieldDescriptorProto::TYPE_SINT64;
 
-    result["bytes"] = FieldDescriptorProto::TYPE_BYTES;
-    result["uint32"] = FieldDescriptorProto::TYPE_UINT32;
-    result["sfixed32"] = FieldDescriptorProto::TYPE_SFIXED32;
-    result["sfixed64"] = FieldDescriptorProto::TYPE_SFIXED64;
-    result["int32"] = FieldDescriptorProto::TYPE_INT32;
-    result["int64"] = FieldDescriptorProto::TYPE_INT64;
-    result["sint32"] = FieldDescriptorProto::TYPE_SINT32;
-    result["sint64"] = FieldDescriptorProto::TYPE_SINT64;
-
-    return result;
-  }());
-  return *table;
+  return result;
 }
+
+const TypeNameMap kTypeNames = MakeTypeNameTable();
 
 // Camel-case the field name and append "Entry" for generated map entry name.
 // e.g. map<KeyType, ValueType> foo_map => FooMapEntry
-std::string MapEntryName(absl::string_view field_name) {
+std::string MapEntryName(const std::string& field_name) {
   std::string result;
   static const char kSuffix[] = "Entry";
   result.reserve(field_name.size() + sizeof(kSuffix));
@@ -112,7 +122,7 @@ bool IsLowercase(char c) { return c >= 'a' && c <= 'z'; }
 
 bool IsNumber(char c) { return c >= '0' && c <= '9'; }
 
-bool IsUpperCamelCase(absl::string_view name) {
+bool IsUpperCamelCase(const std::string& name) {
   if (name.empty()) {
     return true;
   }
@@ -129,7 +139,7 @@ bool IsUpperCamelCase(absl::string_view name) {
   return true;
 }
 
-bool IsUpperUnderscore(absl::string_view name) {
+bool IsUpperUnderscore(const std::string& name) {
   for (const char c : name) {
     if (!IsUppercase(c) && c != '_' && !IsNumber(c)) {
       return false;
@@ -138,7 +148,7 @@ bool IsUpperUnderscore(absl::string_view name) {
   return true;
 }
 
-bool IsLowerUnderscore(absl::string_view name) {
+bool IsLowerUnderscore(const std::string& name) {
   for (const char c : name) {
     if (!IsLowercase(c) && c != '_' && !IsNumber(c)) {
       return false;
@@ -147,7 +157,7 @@ bool IsLowerUnderscore(absl::string_view name) {
   return true;
 }
 
-bool IsNumberFollowUnderscore(absl::string_view name) {
+bool IsNumberFollowUnderscore(const std::string& name) {
   for (int i = 1; i < name.length(); i++) {
     const char c = name[i];
     if (IsNumber(c) && name[i - 1] == '_') {
@@ -170,9 +180,9 @@ bool IsNumberFollowUnderscore(absl::string_view name) {
 // ===================================================================
 
 Parser::Parser()
-    : input_(nullptr),
-      error_collector_(nullptr),
-      source_location_table_(nullptr),
+    : input_(NULL),
+      error_collector_(NULL),
+      source_location_table_(NULL),
       had_errors_(false),
       require_syntax_identifier_(false),
       stop_after_syntax_identifier_(false) {
@@ -182,7 +192,7 @@ Parser::~Parser() {}
 
 // ===================================================================
 
-inline bool Parser::LookingAt(absl::string_view text) {
+inline bool Parser::LookingAt(const char* text) {
   return input_->current().text == text;
 }
 
@@ -192,7 +202,7 @@ inline bool Parser::LookingAtType(io::Tokenizer::TokenType token_type) {
 
 inline bool Parser::AtEnd() { return LookingAtType(io::Tokenizer::TYPE_END); }
 
-bool Parser::TryConsume(absl::string_view text) {
+bool Parser::TryConsume(const char* text) {
   if (LookingAt(text)) {
     input_->Next();
     return true;
@@ -201,50 +211,54 @@ bool Parser::TryConsume(absl::string_view text) {
   }
 }
 
-bool Parser::Consume(absl::string_view text, ErrorMaker error) {
+bool Parser::Consume(const char* text, const char* error) {
   if (TryConsume(text)) {
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::Consume(absl::string_view text) {
-  return Consume(text,
-                 [&] { return absl::StrCat("Expected \"", text, "\"."); });
+bool Parser::Consume(const char* text) {
+  if (TryConsume(text)) {
+    return true;
+  } else {
+    AddError("Expected \"" + std::string(text) + "\".");
+    return false;
+  }
 }
 
-bool Parser::ConsumeIdentifier(std::string* output, ErrorMaker error) {
+bool Parser::ConsumeIdentifier(std::string* output, const char* error) {
   if (LookingAtType(io::Tokenizer::TYPE_IDENTIFIER)) {
     *output = input_->current().text;
     input_->Next();
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::ConsumeInteger(int* output, ErrorMaker error) {
+bool Parser::ConsumeInteger(int* output, const char* error) {
   if (LookingAtType(io::Tokenizer::TYPE_INTEGER)) {
     uint64_t value = 0;
     if (!io::Tokenizer::ParseInteger(input_->current().text,
                                      std::numeric_limits<int32_t>::max(),
                                      &value)) {
-      RecordError("Integer out of range.");
+      AddError("Integer out of range.");
       // We still return true because we did, in fact, parse an integer.
     }
     *output = value;
     input_->Next();
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::ConsumeSignedInteger(int* output, ErrorMaker error) {
+bool Parser::ConsumeSignedInteger(int* output, const char* error) {
   bool is_negative = false;
   uint64_t max_value = std::numeric_limits<int32_t>::max();
   if (TryConsume("-")) {
@@ -259,32 +273,23 @@ bool Parser::ConsumeSignedInteger(int* output, ErrorMaker error) {
 }
 
 bool Parser::ConsumeInteger64(uint64_t max_value, uint64_t* output,
-                              ErrorMaker error) {
+                              const char* error) {
   if (LookingAtType(io::Tokenizer::TYPE_INTEGER)) {
     if (!io::Tokenizer::ParseInteger(input_->current().text, max_value,
                                      output)) {
-      RecordError("Integer out of range.");
+      AddError("Integer out of range.");
       // We still return true because we did, in fact, parse an integer.
       *output = 0;
     }
     input_->Next();
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::TryConsumeInteger64(uint64_t max_value, uint64_t* output) {
-  if (LookingAtType(io::Tokenizer::TYPE_INTEGER) &&
-      io::Tokenizer::ParseInteger(input_->current().text, max_value, output)) {
-    input_->Next();
-    return true;
-  }
-  return false;
-}
-
-bool Parser::ConsumeNumber(double* output, ErrorMaker error) {
+bool Parser::ConsumeNumber(double* output, const char* error) {
   if (LookingAtType(io::Tokenizer::TYPE_FLOAT)) {
     *output = io::Tokenizer::ParseFloat(input_->current().text);
     input_->Next();
@@ -292,19 +297,13 @@ bool Parser::ConsumeNumber(double* output, ErrorMaker error) {
   } else if (LookingAtType(io::Tokenizer::TYPE_INTEGER)) {
     // Also accept integers.
     uint64_t value = 0;
-    if (io::Tokenizer::ParseInteger(input_->current().text,
-                                    std::numeric_limits<uint64_t>::max(),
-                                    &value)) {
-      *output = value;
-    } else if (input_->current().text[0] == '0') {
-      // octal or hexadecimal; don't bother parsing as float
-      RecordError("Integer out of range.");
-      // We still return true because we did, in fact, parse a number.
-    } else if (!io::Tokenizer::TryParseFloat(input_->current().text, output)) {
-      // out of int range, and not valid float? 🤷
-      RecordError("Integer out of range.");
+    if (!io::Tokenizer::ParseInteger(input_->current().text,
+                                     std::numeric_limits<uint64_t>::max(),
+                                     &value)) {
+      AddError("Integer out of range.");
       // We still return true because we did, in fact, parse a number.
     }
+    *output = value;
     input_->Next();
     return true;
   } else if (LookingAt("inf")) {
@@ -316,12 +315,12 @@ bool Parser::ConsumeNumber(double* output, ErrorMaker error) {
     input_->Next();
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::ConsumeString(std::string* output, ErrorMaker error) {
+bool Parser::ConsumeString(std::string* output, const char* error) {
   if (LookingAtType(io::Tokenizer::TYPE_STRING)) {
     io::Tokenizer::ParseString(input_->current().text, output);
     input_->Next();
@@ -332,12 +331,12 @@ bool Parser::ConsumeString(std::string* output, ErrorMaker error) {
     }
     return true;
   } else {
-    RecordError(error);
+    AddError(error);
     return false;
   }
 }
 
-bool Parser::TryConsumeEndOfDeclaration(absl::string_view text,
+bool Parser::TryConsumeEndOfDeclaration(const char* text,
                                         const LocationRecorder* location) {
   if (LookingAt(text)) {
     std::string leading, trailing;
@@ -348,10 +347,10 @@ bool Parser::TryConsumeEndOfDeclaration(absl::string_view text,
     // from last time.
     leading.swap(upcoming_doc_comments_);
 
-    if (location != nullptr) {
+    if (location != NULL) {
       upcoming_detached_comments_.swap(detached);
       location->AttachComments(&leading, &trailing, &detached);
-    } else if (text == "}") {
+    } else if (strcmp(text, "}") == 0) {
       // If the current location is null and we are finishing the current scope,
       // drop pending upcoming detached comments.
       upcoming_detached_comments_.swap(detached);
@@ -368,39 +367,34 @@ bool Parser::TryConsumeEndOfDeclaration(absl::string_view text,
   }
 }
 
-bool Parser::ConsumeEndOfDeclaration(absl::string_view text,
+bool Parser::ConsumeEndOfDeclaration(const char* text,
                                      const LocationRecorder* location) {
   if (TryConsumeEndOfDeclaration(text, location)) {
     return true;
   } else {
-    RecordError([&] { return absl::StrCat("Expected \"", text, "\"."); });
+    AddError("Expected \"" + std::string(text) + "\".");
     return false;
   }
 }
 
 // -------------------------------------------------------------------
 
-void Parser::RecordError(int line, int column, ErrorMaker error) {
-  if (error_collector_ != nullptr) {
-    error_collector_->RecordError(line, column, error.get());
+void Parser::AddError(int line, int column, const std::string& error) {
+  if (error_collector_ != NULL) {
+    error_collector_->AddError(line, column, error);
   }
   had_errors_ = true;
 }
 
-void Parser::RecordError(ErrorMaker error) {
-  RecordError(input_->current().line, input_->current().column, error);
+void Parser::AddError(const std::string& error) {
+  AddError(input_->current().line, input_->current().column, error);
 }
 
-void Parser::RecordWarning(int line, int column, ErrorMaker error) {
+void Parser::AddWarning(const std::string& warning) {
   if (error_collector_ != nullptr) {
-    error_collector_->RecordWarning(line, column, error.get());
+    error_collector_->AddWarning(input_->current().line,
+                                 input_->current().column, warning);
   }
-}
-
-// Invokes error_collector_->RecordWarning() with the line and column number
-// of the current token.
-void Parser::RecordWarning(ErrorMaker error) {
-  RecordWarning(input_->current().line, input_->current().column, error);
 }
 
 // -------------------------------------------------------------------
@@ -479,7 +473,7 @@ void Parser::LocationRecorder::EndAt(const io::Tokenizer::Token& token) {
 void Parser::LocationRecorder::RecordLegacyLocation(
     const Message* descriptor,
     DescriptorPool::ErrorCollector::ErrorLocation location) {
-  if (parser_->source_location_table_ != nullptr) {
+  if (parser_->source_location_table_ != NULL) {
     parser_->source_location_table_->Add(
         descriptor, location, location_->span(0), location_->span(1));
   }
@@ -500,8 +494,8 @@ int Parser::LocationRecorder::CurrentPathSize() const {
 void Parser::LocationRecorder::AttachComments(
     std::string* leading, std::string* trailing,
     std::vector<std::string>* detached_comments) const {
-  ABSL_CHECK(!location_->has_leading_comments());
-  ABSL_CHECK(!location_->has_trailing_comments());
+  GOOGLE_CHECK(!location_->has_leading_comments());
+  GOOGLE_CHECK(!location_->has_trailing_comments());
 
   if (!leading->empty()) {
     location_->mutable_leading_comments()->swap(*leading);
@@ -522,7 +516,7 @@ void Parser::SkipStatement() {
     if (AtEnd()) {
       return;
     } else if (LookingAtType(io::Tokenizer::TYPE_SYMBOL)) {
-      if (TryConsumeEndOfDeclaration(";", nullptr)) {
+      if (TryConsumeEndOfDeclaration(";", NULL)) {
         return;
       } else if (TryConsume("{")) {
         SkipRestOfBlock();
@@ -536,15 +530,14 @@ void Parser::SkipStatement() {
 }
 
 void Parser::SkipRestOfBlock() {
-  size_t block_count = 1;
   while (true) {
     if (AtEnd()) {
       return;
     } else if (LookingAtType(io::Tokenizer::TYPE_SYMBOL)) {
-      if (TryConsumeEndOfDeclaration("}", nullptr)) {
-        if (--block_count == 0) break;
+      if (TryConsumeEndOfDeclaration("}", NULL)) {
+        return;
       } else if (TryConsume("{")) {
-        ++block_count;
+        SkipRestOfBlock();
       }
     }
     input_->Next();
@@ -552,26 +545,6 @@ void Parser::SkipRestOfBlock() {
 }
 
 // ===================================================================
-
-bool Parser::ValidateMessage(const DescriptorProto* proto) {
-  for (int i = 0; i < proto->options().uninterpreted_option_size(); i++) {
-    const UninterpretedOption& option =
-        proto->options().uninterpreted_option(i);
-    if (option.name_size() > 0 && !option.name(0).is_extension() &&
-        option.name(0).name_part() == "map_entry") {
-      int line = -1, col = 0;  // indicates line and column not known
-      if (source_location_table_ != nullptr) {
-        source_location_table_->Find(
-            &option, DescriptorPool::ErrorCollector::OPTION_NAME, &line, &col);
-      }
-      RecordError(line, col,
-                  "map_entry should not be set explicitly. "
-                  "Use map<KeyType, ValueType> instead.");
-      return false;
-    }
-  }
-  return true;
-}
 
 bool Parser::ValidateEnum(const EnumDescriptorProto* proto) {
   bool has_allow_alias = false;
@@ -593,17 +566,16 @@ bool Parser::ValidateEnum(const EnumDescriptorProto* proto) {
   }
 
   if (has_allow_alias && !allow_alias) {
+    std::string error =
+        "\"" + proto->name() +
+        "\" declares 'option allow_alias = false;' which has no effect. "
+        "Please remove the declaration.";
     // This needlessly clutters declarations with nops.
-    RecordError([=] {
-      return absl::StrCat(
-          "\"", proto->name(),
-          "\" declares 'option allow_alias = false;' which has no effect. "
-          "Please remove the declaration.");
-    });
+    AddError(error);
     return false;
   }
 
-  absl::flat_hash_set<int> used_values;
+  std::set<int> used_values;
   bool has_duplicates = false;
   for (int i = 0; i < proto->value_size(); ++i) {
     const EnumValueDescriptorProto& enum_value = proto->value(i);
@@ -615,15 +587,14 @@ bool Parser::ValidateEnum(const EnumDescriptorProto* proto) {
     }
   }
   if (allow_alias && !has_duplicates) {
+    std::string error =
+        "\"" + proto->name() +
+        "\" declares support for enum aliases but no enum values share field "
+        "numbers. Please remove the unnecessary 'option allow_alias = true;' "
+        "declaration.";
     // Generate an error if an enum declares support for duplicate enum values
     // and does not use it protect future authors.
-    RecordError([=] {
-      return absl::StrCat(
-          "\"", proto->name(),
-          "\" declares support for enum aliases but no enum values share field "
-          "numbers. Please remove the unnecessary 'option allow_alias = true;' "
-          "declaration.");
-    });
+    AddError(error);
     return false;
   }
 
@@ -632,13 +603,10 @@ bool Parser::ValidateEnum(const EnumDescriptorProto* proto) {
   if (!allow_alias) {
     for (const auto& enum_value : proto->value()) {
       if (!IsUpperUnderscore(enum_value.name())) {
-        RecordWarning([&] {
-          return absl::StrCat(
-              "Enum constant should be in UPPER_CASE. Found: ",
-              enum_value.name(),
-              ". See "
-              "https://developers.google.com/protocol-buffers/docs/style");
-        });
+        AddWarning(
+            "Enum constant should be in UPPER_CASE. Found: " +
+            enum_value.name() +
+            ". See https://developers.google.com/protocol-buffers/docs/style");
       }
     }
   }
@@ -660,7 +628,7 @@ bool Parser::Parse(io::Tokenizer* input, FileDescriptorProto* file) {
 
   if (LookingAtType(io::Tokenizer::TYPE_START)) {
     // Advance to first token.
-    input_->NextWithComments(nullptr, &upcoming_detached_comments_,
+    input_->NextWithComments(NULL, &upcoming_detached_comments_,
                              &upcoming_doc_comments_);
   }
 
@@ -669,26 +637,19 @@ bool Parser::Parse(io::Tokenizer* input, FileDescriptorProto* file) {
     root_location.RecordLegacyLocation(file,
                                        DescriptorPool::ErrorCollector::OTHER);
 
-    if (require_syntax_identifier_ || LookingAt("syntax") ||
-        LookingAt("edition")) {
-      if (!ParseSyntaxIdentifier(file, root_location)) {
+    if (require_syntax_identifier_ || LookingAt("syntax")) {
+      if (!ParseSyntaxIdentifier(root_location)) {
         // Don't attempt to parse the file if we didn't recognize the syntax
         // identifier.
         return false;
       }
       // Store the syntax into the file.
-      if (file != nullptr) {
-        file->set_syntax(syntax_identifier_);
-        if (syntax_identifier_ == "editions") {
-          file->set_edition(edition_);
-        }
-      }
+      if (file != NULL) file->set_syntax(syntax_identifier_);
     } else if (!stop_after_syntax_identifier_) {
-      ABSL_LOG(WARNING) << "No syntax specified for the proto file: "
-                        << file->name()
-                        << ". Please use 'syntax = \"proto2\";' "
-                        << "or 'syntax = \"proto3\";' to specify a syntax "
-                        << "version. (Defaulted to proto2 syntax.)";
+      GOOGLE_LOG(WARNING) << "No syntax specified for the proto file: " << file->name()
+                   << ". Please use 'syntax = \"proto2\";' "
+                   << "or 'syntax = \"proto3\";' to specify a syntax "
+                   << "version. (Defaulted to proto2 syntax.)";
       syntax_identifier_ = "proto2";
     }
 
@@ -702,62 +663,41 @@ bool Parser::Parse(io::Tokenizer* input, FileDescriptorProto* file) {
         SkipStatement();
 
         if (LookingAt("}")) {
-          RecordError("Unmatched \"}\".");
-          input_->NextWithComments(nullptr, &upcoming_detached_comments_,
+          AddError("Unmatched \"}\".");
+          input_->NextWithComments(NULL, &upcoming_detached_comments_,
                                    &upcoming_doc_comments_);
         }
       }
     }
   }
 
-  input_ = nullptr;
-  source_code_info_ = nullptr;
-  assert(file != nullptr);
+  input_ = NULL;
+  source_code_info_ = NULL;
+  assert(file != NULL);
   source_code_info.Swap(file->mutable_source_code_info());
   return !had_errors_;
 }
 
-bool Parser::ParseSyntaxIdentifier(const FileDescriptorProto* file,
-                                   const LocationRecorder& parent) {
+bool Parser::ParseSyntaxIdentifier(const LocationRecorder& parent) {
   LocationRecorder syntax_location(parent,
                                    FileDescriptorProto::kSyntaxFieldNumber);
-  syntax_location.RecordLegacyLocation(
-      file, DescriptorPool::ErrorCollector::EDITIONS);
-  bool has_edition = false;
-  if (TryConsume("edition")) {
-    has_edition = true;
-  } else {
-    DO(Consume("syntax",
-               "File must begin with a syntax statement, e.g. 'syntax = "
-               "\"proto2\";'."));
-  }
-
+  DO(Consume(
+      "syntax",
+      "File must begin with a syntax statement, e.g. 'syntax = \"proto2\";'."));
   DO(Consume("="));
   io::Tokenizer::Token syntax_token = input_->current();
   std::string syntax;
   DO(ConsumeString(&syntax, "Expected syntax identifier."));
   DO(ConsumeEndOfDeclaration(";", &syntax_location));
 
-  if (has_edition) {
-    if (!Edition_Parse(absl::StrCat("EDITION_", syntax), &edition_) ||
-        edition_ < Edition::EDITION_2023) {
-      RecordError(syntax_token.line, syntax_token.column, [&] {
-        return absl::StrCat("Unknown edition \"", syntax, "\".");
-      });
-      return false;
-    }
-    syntax_identifier_ = "editions";
-    return true;
-  }
-
   syntax_identifier_ = syntax;
+
   if (syntax != "proto2" && syntax != "proto3" &&
       !stop_after_syntax_identifier_) {
-    RecordError(syntax_token.line, syntax_token.column, [&] {
-      return absl::StrCat("Unrecognized syntax identifier \"", syntax,
-                          "\".  This parser "
-                          "only recognizes \"proto2\" and \"proto3\".");
-    });
+    AddError(syntax_token.line, syntax_token.column,
+             "Unrecognized syntax identifier \"" + syntax +
+                 "\".  This parser "
+                 "only recognizes \"proto2\" and \"proto3\".");
     return false;
   }
 
@@ -766,7 +706,7 @@ bool Parser::ParseSyntaxIdentifier(const FileDescriptorProto* file,
 
 bool Parser::ParseTopLevelStatement(FileDescriptorProto* file,
                                     const LocationRecorder& root_location) {
-  if (TryConsumeEndOfDeclaration(";", nullptr)) {
+  if (TryConsumeEndOfDeclaration(";", NULL)) {
     // empty statement; ignore
     return true;
   } else if (LookingAt("message")) {
@@ -802,50 +742,13 @@ bool Parser::ParseTopLevelStatement(FileDescriptorProto* file,
     return ParseOption(file->mutable_options(), location, file,
                        OPTION_STATEMENT);
   } else {
-    RecordError("Expected top-level statement (e.g. \"message\").");
+    AddError("Expected top-level statement (e.g. \"message\").");
     return false;
   }
 }
 
 // -------------------------------------------------------------------
 // Messages
-
-PROTOBUF_NOINLINE static void GenerateSyntheticOneofs(
-    DescriptorProto* message) {
-  // Add synthetic one-field oneofs for optional fields, except messages which
-  // already have presence in proto3.
-  //
-  // We have to make sure the oneof names don't conflict with any other
-  // field or oneof.
-  absl::flat_hash_set<std::string> names;
-  for (const auto& field : message->field()) {
-    names.insert(field.name());
-  }
-  for (const auto& oneof : message->oneof_decl()) {
-    names.insert(oneof.name());
-  }
-
-  for (auto& field : *message->mutable_field()) {
-    if (field.proto3_optional()) {
-      std::string oneof_name = field.name();
-
-      // Prepend 'XXXXX_' until we are no longer conflicting.
-      // Avoid prepending a double-underscore because such names are
-      // reserved in C++.
-      if (oneof_name.empty() || oneof_name[0] != '_') {
-        oneof_name = '_' + oneof_name;
-      }
-      while (names.count(oneof_name) > 0) {
-        oneof_name = 'X' + oneof_name;
-      }
-
-      names.insert(oneof_name);
-      field.set_oneof_index(message->oneof_decl_size());
-      OneofDescriptorProto* oneof = message->add_oneof_decl();
-      oneof->set_name(std::move(oneof_name));
-    }
-  }
-}
 
 bool Parser::ParseMessageDefinition(
     DescriptorProto* message, const LocationRecorder& message_location,
@@ -858,18 +761,48 @@ bool Parser::ParseMessageDefinition(
                                   DescriptorPool::ErrorCollector::NAME);
     DO(ConsumeIdentifier(message->mutable_name(), "Expected message name."));
     if (!IsUpperCamelCase(message->name())) {
-      RecordWarning([=] {
-        return absl::StrCat(
-            "Message name should be in UpperCamelCase. Found: ",
-            message->name(),
-            ". See https://developers.google.com/protocol-buffers/docs/style");
-      });
+      AddWarning(
+          "Message name should be in UpperCamelCase. Found: " +
+          message->name() +
+          ". See https://developers.google.com/protocol-buffers/docs/style");
     }
   }
   DO(ParseMessageBlock(message, message_location, containing_file));
 
   if (syntax_identifier_ == "proto3") {
-    GenerateSyntheticOneofs(message);
+    // Add synthetic one-field oneofs for optional fields, except messages which
+    // already have presence in proto3.
+    //
+    // We have to make sure the oneof names don't conflict with any other
+    // field or oneof.
+    std::unordered_set<std::string> names;
+    for (const auto& field : message->field()) {
+      names.insert(field.name());
+    }
+    for (const auto& oneof : message->oneof_decl()) {
+      names.insert(oneof.name());
+    }
+
+    for (auto& field : *message->mutable_field()) {
+      if (field.proto3_optional()) {
+        std::string oneof_name = field.name();
+
+        // Prepend 'XXXXX_' until we are no longer conflicting.
+        // Avoid prepending a double-underscore because such names are
+        // reserved in C++.
+        if (oneof_name.empty() || oneof_name[0] != '_') {
+          oneof_name = '_' + oneof_name;
+        }
+        while (names.count(oneof_name) > 0) {
+          oneof_name = 'X' + oneof_name;
+        }
+
+        names.insert(oneof_name);
+        field.set_oneof_index(message->oneof_decl_size());
+        OneofDescriptorProto* oneof = message->add_oneof_decl();
+        oneof->set_name(oneof_name);
+      }
+    }
   }
 
   return true;
@@ -884,7 +817,6 @@ bool IsMessageSetWireFormatMessage(const DescriptorProto& message) {
   for (int i = 0; i < options.uninterpreted_option_size(); ++i) {
     const UninterpretedOption& uninterpreted = options.uninterpreted_option(i);
     if (uninterpreted.name_size() == 1 &&
-        !uninterpreted.name(0).is_extension() &&
         uninterpreted.name(0).name_part() == "message_set_wire_format" &&
         uninterpreted.identifier_value() == "true") {
       return true;
@@ -930,9 +862,9 @@ bool Parser::ParseMessageBlock(DescriptorProto* message,
                                const FileDescriptorProto* containing_file) {
   DO(ConsumeEndOfDeclaration("{", &message_location));
 
-  while (!TryConsumeEndOfDeclaration("}", nullptr)) {
+  while (!TryConsumeEndOfDeclaration("}", NULL)) {
     if (AtEnd()) {
-      RecordError("Reached end of input in message definition (missing '}').");
+      AddError("Reached end of input in message definition (missing '}').");
       return false;
     }
 
@@ -949,16 +881,13 @@ bool Parser::ParseMessageBlock(DescriptorProto* message,
   if (message->reserved_range_size() > 0) {
     AdjustReservedRangesWithMaxEndNumber(message);
   }
-
-  DO(ValidateMessage(message));
-
   return true;
 }
 
 bool Parser::ParseMessageStatement(DescriptorProto* message,
                                    const LocationRecorder& message_location,
                                    const FileDescriptorProto* containing_file) {
-  if (TryConsumeEndOfDeclaration(";", nullptr)) {
+  if (TryConsumeEndOfDeclaration(";", NULL)) {
     // empty statement; ignore
     return true;
   } else if (LookingAt("message")) {
@@ -1016,7 +945,7 @@ bool Parser::ParseMessageField(FieldDescriptorProto* field,
                                const FileDescriptorProto* containing_file) {
   {
     FieldDescriptorProto::Label label;
-    if (ParseLabel(&label, field_location)) {
+    if (ParseLabel(&label, field_location, containing_file)) {
       field->set_label(label);
       if (label == FieldDescriptorProto::LABEL_OPTIONAL &&
           syntax_identifier_ == "proto3") {
@@ -1051,27 +980,50 @@ bool Parser::ParseMessageFieldNoLabel(
     if (TryConsume("map")) {
       if (LookingAt("<")) {
         map_field.is_map_field = true;
-        DO(ParseMapType(&map_field, field, location));
       } else {
         // False positive
         type_parsed = true;
         type_name = "map";
       }
     }
-    if (!map_field.is_map_field) {
+    if (map_field.is_map_field) {
+      if (field->has_oneof_index()) {
+        AddError("Map fields are not allowed in oneofs.");
+        return false;
+      }
+      if (field->has_label()) {
+        AddError(
+            "Field labels (required/optional/repeated) are not allowed on "
+            "map fields.");
+        return false;
+      }
+      if (field->has_extendee()) {
+        AddError("Map fields are not allowed to be extensions.");
+        return false;
+      }
+      field->set_label(FieldDescriptorProto::LABEL_REPEATED);
+      DO(Consume("<"));
+      DO(ParseType(&map_field.key_type, &map_field.key_type_name));
+      DO(Consume(","));
+      DO(ParseType(&map_field.value_type, &map_field.value_type_name));
+      DO(Consume(">"));
+      // Defer setting of the type name of the map field until the
+      // field name is parsed. Add the source location though.
+      location.AddPath(FieldDescriptorProto::kTypeNameFieldNumber);
+    } else {
       // Handle the case where no explicit label is given for a non-map field.
       if (!field->has_label() && DefaultToOptionalFields()) {
         field->set_label(FieldDescriptorProto::LABEL_OPTIONAL);
       }
       if (!field->has_label()) {
-        RecordError("Expected \"required\", \"optional\", or \"repeated\".");
+        AddError("Expected \"required\", \"optional\", or \"repeated\".");
         // We can actually reasonably recover here by just assuming the user
         // forgot the label altogether.
         field->set_label(FieldDescriptorProto::LABEL_OPTIONAL);
       }
 
-      // Handle the case where the actual type is a message or enum named
-      // "map", which we already consumed in the code above.
+      // Handle the case where the actual type is a message or enum named "map",
+      // which we already consumed in the code above.
       if (!type_parsed) {
         DO(ParseType(&type, &type_name));
       }
@@ -1094,19 +1046,15 @@ bool Parser::ParseMessageFieldNoLabel(
     DO(ConsumeIdentifier(field->mutable_name(), "Expected field name."));
 
     if (!IsLowerUnderscore(field->name())) {
-      RecordWarning([=] {
-        return absl::StrCat(
-            "Field name should be lowercase. Found: ", field->name(),
-            ". See: https://developers.google.com/protocol-buffers/docs/style");
-      });
+      AddWarning(
+          "Field name should be lowercase. Found: " + field->name() +
+          ". See: https://developers.google.com/protocol-buffers/docs/style");
     }
     if (IsNumberFollowUnderscore(field->name())) {
-      RecordWarning([=] {
-        return absl::StrCat(
-            "Number should not come right after an underscore. Found: ",
-            field->name(),
-            ". See: https://developers.google.com/protocol-buffers/docs/style");
-      });
+      AddWarning(
+          "Number should not come right after an underscore. Found: " +
+          field->name() +
+          ". See: https://developers.google.com/protocol-buffers/docs/style");
     }
   }
   DO(Consume("=", "Missing field number."));
@@ -1159,16 +1107,16 @@ bool Parser::ParseMessageFieldNoLabel(
     // with a capital letter and lower-case the field name.  New code should
     // not use groups; it should use nested messages.
     if (group->name()[0] < 'A' || 'Z' < group->name()[0]) {
-      RecordError(name_token.line, name_token.column,
-                  "Group names must start with a capital letter.");
+      AddError(name_token.line, name_token.column,
+               "Group names must start with a capital letter.");
     }
-    absl::AsciiStrToLower(field->mutable_name());
+    LowerString(field->mutable_name());
 
     field->set_type_name(group->name());
     if (LookingAt("{")) {
       DO(ParseMessageBlock(group, group_location, containing_file));
     } else {
-      RecordError("Missing group body.");
+      AddError("Missing group body.");
       return false;
     }
   } else {
@@ -1180,34 +1128,6 @@ bool Parser::ParseMessageFieldNoLabel(
     GenerateMapEntry(map_field, field, messages);
   }
 
-  return true;
-}
-
-bool Parser::ParseMapType(MapField* map_field, FieldDescriptorProto* field,
-                          LocationRecorder& type_name_location) {
-  if (field->has_oneof_index()) {
-    RecordError("Map fields are not allowed in oneofs.");
-    return false;
-  }
-  if (field->has_label()) {
-    RecordError(
-        "Field labels (required/optional/repeated) are not allowed on "
-        "map fields.");
-    return false;
-  }
-  if (field->has_extendee()) {
-    RecordError("Map fields are not allowed to be extensions.");
-    return false;
-  }
-  field->set_label(FieldDescriptorProto::LABEL_REPEATED);
-  DO(Consume("<"));
-  DO(ParseType(&map_field->key_type, &map_field->key_type_name));
-  DO(Consume(","));
-  DO(ParseType(&map_field->value_type, &map_field->value_type_name));
-  DO(Consume(">"));
-  // Defer setting of the type name of the map field until the
-  // field name is parsed. Add the source location though.
-  type_name_location.AddPath(FieldDescriptorProto::kTypeNameFieldNumber);
   return true;
 }
 
@@ -1237,44 +1157,40 @@ void Parser::GenerateMapEntry(const MapField& map_field,
   } else {
     value_field->set_type_name(map_field.value_type_name);
   }
-  // Propagate all features to the generated key and value fields. This helps
-  // simplify the implementation of code generators and also reflection-based
-  // parsing code. Instead of having to implement complex inheritance rules
-  // special-casing maps, we can just copy them at generation time.
+  // Propagate the "enforce_utf8" option to key and value fields if they
+  // are strings. This helps simplify the implementation of code generators
+  // and also reflection-based parsing code.
   //
   // The following definition:
   //   message Foo {
-  //     map<string, string> value = 1 [features.some_feature = VALUE];
+  //     map<string, string> value = 1 [enforce_utf8 = false];
   //   }
   // will be interpreted as:
   //   message Foo {
   //     message ValueEntry {
   //       option map_entry = true;
-  //       string key = 1 [features.some_feature = VALUE];
-  //       string value = 2 [features.some_feature = VALUE];
+  //       string key = 1 [enforce_utf8 = false];
+  //       string value = 2 [enforce_utf8 = false];
   //     }
-  //     repeated ValueEntry value = 1 [features.some_feature = VALUE];
+  //     repeated ValueEntry value = 1 [enforce_utf8 = false];
   //  }
+  //
+  // TODO(xiaofeng): Remove this when the "enforce_utf8" option is removed
+  // from protocol compiler.
   for (int i = 0; i < field->options().uninterpreted_option_size(); ++i) {
     const UninterpretedOption& option =
         field->options().uninterpreted_option(i);
-    // Legacy handling for the `enforce_utf8` option, which bears a striking
-    // similarity to features in many respects.
-    // TODO Delete this once proto2/proto3 have been turned down.
     if (option.name_size() == 1 &&
         option.name(0).name_part() == "enforce_utf8" &&
         !option.name(0).is_extension()) {
       if (key_field->type() == FieldDescriptorProto::TYPE_STRING) {
-        *key_field->mutable_options()->add_uninterpreted_option() = option;
+        key_field->mutable_options()->add_uninterpreted_option()->CopyFrom(
+            option);
       }
       if (value_field->type() == FieldDescriptorProto::TYPE_STRING) {
-        *value_field->mutable_options()->add_uninterpreted_option() = option;
+        value_field->mutable_options()->add_uninterpreted_option()->CopyFrom(
+            option);
       }
-    }
-    if (option.name(0).name_part() == "features" &&
-        !option.name(0).is_extension()) {
-      *key_field->mutable_options()->add_uninterpreted_option() = option;
-      *value_field->mutable_options()->add_uninterpreted_option() = option;
     }
   }
 }
@@ -1312,7 +1228,7 @@ bool Parser::ParseDefaultAssignment(
     FieldDescriptorProto* field, const LocationRecorder& field_location,
     const FileDescriptorProto* containing_file) {
   if (field->has_default_value()) {
-    RecordError("Already set option \"default\".");
+    AddError("Already set option \"default\".");
     field->clear_default_value();
   }
 
@@ -1365,7 +1281,7 @@ bool Parser::ParseDefaultAssignment(
       DO(ConsumeInteger64(max_value, &value,
                           "Expected integer for field default value."));
       // And stringify it again.
-      default_value->append(absl::StrCat(value));
+      default_value->append(StrCat(value));
       break;
     }
 
@@ -1381,38 +1297,38 @@ bool Parser::ParseDefaultAssignment(
 
       // Numeric, not negative.
       if (TryConsume("-")) {
-        RecordError("Unsigned field can't have negative default value.");
+        AddError("Unsigned field can't have negative default value.");
       }
       // Parse the integer to verify that it is not out-of-range.
       uint64_t value;
       DO(ConsumeInteger64(max_value, &value,
                           "Expected integer for field default value."));
       // And stringify it again.
-      default_value->append(absl::StrCat(value));
+      default_value->append(StrCat(value));
       break;
     }
 
     case FieldDescriptorProto::TYPE_FLOAT:
-    case FieldDescriptorProto::TYPE_DOUBLE: {
+    case FieldDescriptorProto::TYPE_DOUBLE:
       // These types can be negative.
       if (TryConsume("-")) {
         default_value->append("-");
       }
       // Parse the integer because we have to convert hex integers to decimal
       // floats.
-      double value = 0.0;
+      double value;
       DO(ConsumeNumber(&value, "Expected number."));
       // And stringify it again.
-      default_value->append(io::SimpleDtoa(value));
+      default_value->append(SimpleDtoa(value));
       break;
-    }
+
     case FieldDescriptorProto::TYPE_BOOL:
       if (TryConsume("true")) {
         default_value->assign("true");
       } else if (TryConsume("false")) {
         default_value->assign("false");
       } else {
-        RecordError("Expected \"true\" or \"false\".");
+        AddError("Expected \"true\" or \"false\".");
         return false;
       }
       break;
@@ -1428,7 +1344,7 @@ bool Parser::ParseDefaultAssignment(
 
     case FieldDescriptorProto::TYPE_BYTES:
       DO(ConsumeString(default_value, "Expected string."));
-      *default_value = absl::CEscape(*default_value);
+      *default_value = CEscape(*default_value);
       break;
 
     case FieldDescriptorProto::TYPE_ENUM:
@@ -1439,7 +1355,7 @@ bool Parser::ParseDefaultAssignment(
 
     case FieldDescriptorProto::TYPE_MESSAGE:
     case FieldDescriptorProto::TYPE_GROUP:
-      RecordError("Messages can't have default values.");
+      AddError("Messages can't have default values.");
       return false;
   }
 
@@ -1450,7 +1366,7 @@ bool Parser::ParseJsonName(FieldDescriptorProto* field,
                            const LocationRecorder& field_location,
                            const FileDescriptorProto* containing_file) {
   if (field->has_json_name()) {
-    RecordError("Already set option \"json_name\".");
+    AddError("Already set option \"json_name\".");
     field->clear_json_name();
   }
 
@@ -1524,12 +1440,12 @@ bool Parser::ParseUninterpretedBlock(std::string* value) {
         return true;
       }
     }
-    // TODO: Interpret line/column numbers to preserve formatting
+    // TODO(sanjay): Interpret line/column numbers to preserve formatting
     if (!value->empty()) value->push_back(' ');
     value->append(input_->current().text);
     input_->Next();
   }
-  RecordError("Unexpected end of stream while parsing aggregate value.");
+  AddError("Unexpected end of stream while parsing aggregate value.");
   return false;
 }
 
@@ -1542,7 +1458,7 @@ bool Parser::ParseOption(Message* options,
   // Create an entry in the uninterpreted_option field.
   const FieldDescriptor* uninterpreted_option_field =
       options->GetDescriptor()->FindFieldByName("uninterpreted_option");
-  ABSL_CHECK(uninterpreted_option_field != nullptr)
+  GOOGLE_CHECK(uninterpreted_option_field != NULL)
       << "No field named \"uninterpreted_option\" in the Options proto.";
 
   const Reflection* reflection = options->GetReflection();
@@ -1556,7 +1472,7 @@ bool Parser::ParseOption(Message* options,
   }
 
   UninterpretedOption* uninterpreted_option =
-      DownCast<UninterpretedOption*>(options->GetReflection()->AddMessage(
+      down_cast<UninterpretedOption*>(options->GetReflection()->AddMessage(
           options, uninterpreted_option_field));
 
   // Parse dot-separated name.
@@ -1595,26 +1511,18 @@ bool Parser::ParseOption(Message* options,
 
     switch (input_->current().type) {
       case io::Tokenizer::TYPE_START:
-        ABSL_LOG(FATAL)
-            << "Trying to read value before any tokens have been read.";
+        GOOGLE_LOG(FATAL) << "Trying to read value before any tokens have been read.";
         return false;
 
       case io::Tokenizer::TYPE_END:
-        RecordError("Unexpected end of stream while parsing option value.");
-        return false;
-
-      case io::Tokenizer::TYPE_WHITESPACE:
-      case io::Tokenizer::TYPE_NEWLINE:
-        ABSL_CHECK(!input_->report_whitespace() && !input_->report_newlines())
-            << "Whitespace tokens were not requested.";
-        ABSL_LOG(FATAL) << "Tokenizer reported whitespace.";
+        AddError("Unexpected end of stream while parsing option value.");
         return false;
 
       case io::Tokenizer::TYPE_IDENTIFIER: {
         value_location.AddPath(
             UninterpretedOption::kIdentifierValueFieldNumber);
         if (is_negative) {
-          RecordError("Invalid '-' symbol before identifier.");
+          AddError("Invalid '-' symbol before identifier.");
           return false;
         }
         std::string value;
@@ -1629,27 +1537,23 @@ bool Parser::ParseOption(Message* options,
             is_negative
                 ? static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1
                 : std::numeric_limits<uint64_t>::max();
-        if (TryConsumeInteger64(max_value, &value)) {
-          if (is_negative) {
-            value_location.AddPath(
-                UninterpretedOption::kNegativeIntValueFieldNumber);
-            uninterpreted_option->set_negative_int_value(
-                static_cast<int64_t>(0 - value));
-          } else {
-            value_location.AddPath(
-                UninterpretedOption::kPositiveIntValueFieldNumber);
-            uninterpreted_option->set_positive_int_value(value);
-          }
-          break;
+        DO(ConsumeInteger64(max_value, &value, "Expected integer."));
+        if (is_negative) {
+          value_location.AddPath(
+              UninterpretedOption::kNegativeIntValueFieldNumber);
+          uninterpreted_option->set_negative_int_value(
+              static_cast<int64_t>(-value));
+        } else {
+          value_location.AddPath(
+              UninterpretedOption::kPositiveIntValueFieldNumber);
+          uninterpreted_option->set_positive_int_value(value);
         }
-        // value too large for an integer; fall through below to treat as
-        // floating point
-        ABSL_FALLTHROUGH_INTENDED;
+        break;
       }
 
       case io::Tokenizer::TYPE_FLOAT: {
         value_location.AddPath(UninterpretedOption::kDoubleValueFieldNumber);
-        double value = 0.0;
+        double value;
         DO(ConsumeNumber(&value, "Expected number."));
         uninterpreted_option->set_double_value(is_negative ? -value : value);
         break;
@@ -1658,7 +1562,7 @@ bool Parser::ParseOption(Message* options,
       case io::Tokenizer::TYPE_STRING: {
         value_location.AddPath(UninterpretedOption::kStringValueFieldNumber);
         if (is_negative) {
-          RecordError("Invalid '-' symbol before string.");
+          AddError("Invalid '-' symbol before string.");
           return false;
         }
         std::string value;
@@ -1674,7 +1578,7 @@ bool Parser::ParseOption(Message* options,
           DO(ParseUninterpretedBlock(
               uninterpreted_option->mutable_aggregate_value()));
         } else {
-          RecordError("Expected option value.");
+          AddError("Expected option value.");
           return false;
         }
         break;
@@ -1713,11 +1617,6 @@ bool Parser::ParseExtensions(DescriptorProto* message,
           location, DescriptorProto::ExtensionRange::kStartFieldNumber);
       start_token = input_->current();
       DO(ConsumeInteger(&start, "Expected field number range."));
-
-      if (start == std::numeric_limits<int>::max()) {
-        RecordError("Field number out of bounds.");
-        return false;
-      }
     }
 
     if (TryConsume("to")) {
@@ -1730,11 +1629,6 @@ bool Parser::ParseExtensions(DescriptorProto* message,
         end = kMaxRangeSentinel - 1;
       } else {
         DO(ConsumeInteger(&end, "Expected integer."));
-
-        if (end == std::numeric_limits<int>::max()) {
-          RecordError("Field number out of bounds.");
-          return false;
-        }
       }
     } else {
       LocationRecorder end_location(
@@ -1808,27 +1702,10 @@ bool Parser::ParseReserved(DescriptorProto* message,
   // Parse the declaration.
   DO(Consume("reserved"));
   if (LookingAtType(io::Tokenizer::TYPE_STRING)) {
-    if (syntax_identifier_ == "editions") {
-      RecordError(
-          "Reserved names must be identifiers in editions, not string "
-          "literals.");
-      return false;
-    }
     LocationRecorder location(message_location,
                               DescriptorProto::kReservedNameFieldNumber);
     location.StartAt(start_token);
     return ParseReservedNames(message, location);
-  } else if (LookingAtType(io::Tokenizer::TYPE_IDENTIFIER)) {
-    if (syntax_identifier_ != "editions") {
-      RecordError(
-          "Reserved names must be string literals. (Only editions supports "
-          "identifiers.)");
-      return false;
-    }
-    LocationRecorder location(message_location,
-                              DescriptorProto::kReservedNameFieldNumber);
-    location.StartAt(start_token);
-    return ParseReservedIdentifiers(message, location);
   } else {
     LocationRecorder location(message_location,
                               DescriptorProto::kReservedRangeFieldNumber);
@@ -1837,44 +1714,11 @@ bool Parser::ParseReserved(DescriptorProto* message,
   }
 }
 
-bool Parser::ParseReservedName(std::string* name, ErrorMaker error_message) {
-  // Capture the position of the token, in case we have to report an
-  // error after it is consumed.
-  int line = input_->current().line;
-  int col = input_->current().column;
-  DO(ConsumeString(name, error_message));
-  if (!io::Tokenizer::IsIdentifier(*name)) {
-    RecordWarning(line, col, [=] {
-      return absl::StrFormat("Reserved name \"%s\" is not a valid identifier.",
-                             *name);
-    });
-  }
-  return true;
-}
-
 bool Parser::ParseReservedNames(DescriptorProto* message,
                                 const LocationRecorder& parent_location) {
   do {
     LocationRecorder location(parent_location, message->reserved_name_size());
-    DO(ParseReservedName(message->add_reserved_name(),
-                         "Expected field name string literal."));
-  } while (TryConsume(","));
-  DO(ConsumeEndOfDeclaration(";", &parent_location));
-  return true;
-}
-
-bool Parser::ParseReservedIdentifier(std::string* name,
-                                     ErrorMaker error_message) {
-  DO(ConsumeIdentifier(name, error_message));
-  return true;
-}
-
-bool Parser::ParseReservedIdentifiers(DescriptorProto* message,
-                                      const LocationRecorder& parent_location) {
-  do {
-    LocationRecorder location(parent_location, message->reserved_name_size());
-    DO(ParseReservedIdentifier(message->add_reserved_name(),
-                               "Expected field name identifier."));
+    DO(ConsumeString(message->add_reserved_name(), "Expected field name."));
   } while (TryConsume(","));
   DO(ConsumeEndOfDeclaration(";", &parent_location));
   return true;
@@ -1887,8 +1731,6 @@ bool Parser::ParseReservedNumbers(DescriptorProto* message,
     LocationRecorder location(parent_location, message->reserved_range_size());
 
     DescriptorProto::ReservedRange* range = message->add_reserved_range();
-    location.RecordLegacyLocation(range,
-                                  DescriptorPool::ErrorCollector::NUMBER);
     int start, end;
     io::Tokenizer::Token start_token;
     {
@@ -1931,72 +1773,42 @@ bool Parser::ParseReservedNumbers(DescriptorProto* message,
   return true;
 }
 
-bool Parser::ParseReserved(EnumDescriptorProto* proto,
-                           const LocationRecorder& enum_location) {
+bool Parser::ParseReserved(EnumDescriptorProto* message,
+                           const LocationRecorder& message_location) {
   io::Tokenizer::Token start_token = input_->current();
   // Parse the declaration.
   DO(Consume("reserved"));
   if (LookingAtType(io::Tokenizer::TYPE_STRING)) {
-    if (syntax_identifier_ == "editions") {
-      RecordError(
-          "Reserved names must be identifiers in editions, not string "
-          "literals.");
-      return false;
-    }
-    LocationRecorder location(enum_location,
+    LocationRecorder location(message_location,
                               EnumDescriptorProto::kReservedNameFieldNumber);
     location.StartAt(start_token);
-    return ParseReservedNames(proto, location);
-  } else if (LookingAtType(io::Tokenizer::TYPE_IDENTIFIER)) {
-    if (syntax_identifier_ != "editions") {
-      RecordError(
-          "Reserved names must be string literals. (Only editions supports "
-          "identifiers.)");
-      return false;
-    }
-    LocationRecorder location(enum_location,
-                              EnumDescriptorProto::kReservedNameFieldNumber);
-    location.StartAt(start_token);
-    return ParseReservedIdentifiers(proto, location);
+    return ParseReservedNames(message, location);
   } else {
-    LocationRecorder location(enum_location,
+    LocationRecorder location(message_location,
                               EnumDescriptorProto::kReservedRangeFieldNumber);
     location.StartAt(start_token);
-    return ParseReservedNumbers(proto, location);
+    return ParseReservedNumbers(message, location);
   }
 }
 
-bool Parser::ParseReservedNames(EnumDescriptorProto* proto,
+bool Parser::ParseReservedNames(EnumDescriptorProto* message,
                                 const LocationRecorder& parent_location) {
   do {
-    LocationRecorder location(parent_location, proto->reserved_name_size());
-    DO(ParseReservedName(proto->add_reserved_name(),
-                         "Expected enum value string literal."));
+    LocationRecorder location(parent_location, message->reserved_name_size());
+    DO(ConsumeString(message->add_reserved_name(), "Expected enum value."));
   } while (TryConsume(","));
   DO(ConsumeEndOfDeclaration(";", &parent_location));
   return true;
 }
 
-bool Parser::ParseReservedIdentifiers(EnumDescriptorProto* proto,
-                                      const LocationRecorder& parent_location) {
-  do {
-    LocationRecorder location(parent_location, proto->reserved_name_size());
-    DO(ParseReservedIdentifier(proto->add_reserved_name(),
-                               "Expected enum value identifier."));
-  } while (TryConsume(","));
-  DO(ConsumeEndOfDeclaration(";", &parent_location));
-  return true;
-}
-
-bool Parser::ParseReservedNumbers(EnumDescriptorProto* proto,
+bool Parser::ParseReservedNumbers(EnumDescriptorProto* message,
                                   const LocationRecorder& parent_location) {
   bool first = true;
   do {
-    LocationRecorder location(parent_location, proto->reserved_range_size());
+    LocationRecorder location(parent_location, message->reserved_range_size());
 
-    EnumDescriptorProto::EnumReservedRange* range = proto->add_reserved_range();
-    location.RecordLegacyLocation(range,
-                                  DescriptorPool::ErrorCollector::NUMBER);
+    EnumDescriptorProto::EnumReservedRange* range =
+        message->add_reserved_range();
     int start, end;
     io::Tokenizer::Token start_token;
     {
@@ -2056,7 +1868,7 @@ bool Parser::ParseExtend(RepeatedPtrField<FieldDescriptorProto>* extensions,
 
   do {
     if (AtEnd()) {
-      RecordError("Reached end of input in extend definition (missing '}').");
+      AddError("Reached end of input in extend definition (missing '}').");
       return false;
     }
 
@@ -2087,7 +1899,7 @@ bool Parser::ParseExtend(RepeatedPtrField<FieldDescriptorProto>* extensions,
       // other statements.
       SkipStatement();
     }
-  } while (!TryConsumeEndOfDeclaration("}", nullptr));
+  } while (!TryConsumeEndOfDeclaration("}", NULL));
 
   return true;
 }
@@ -2109,7 +1921,7 @@ bool Parser::ParseOneof(OneofDescriptorProto* oneof_decl,
 
   do {
     if (AtEnd()) {
-      RecordError("Reached end of input in oneof definition (missing '}').");
+      AddError("Reached end of input in oneof definition (missing '}').");
       return false;
     }
 
@@ -2127,7 +1939,7 @@ bool Parser::ParseOneof(OneofDescriptorProto* oneof_decl,
     // on an individual member of a oneof.
     if (LookingAt("required") || LookingAt("optional") ||
         LookingAt("repeated")) {
-      RecordError(
+      AddError(
           "Fields in oneofs must not have labels (required / optional "
           "/ repeated).");
       // We can continue parsing here because we understand what the user
@@ -2151,7 +1963,7 @@ bool Parser::ParseOneof(OneofDescriptorProto* oneof_decl,
       // other statements.
       SkipStatement();
     }
-  } while (!TryConsumeEndOfDeclaration("}", nullptr));
+  } while (!TryConsumeEndOfDeclaration("}", NULL));
 
   return true;
 }
@@ -2184,9 +1996,9 @@ bool Parser::ParseEnumBlock(EnumDescriptorProto* enum_type,
                             const FileDescriptorProto* containing_file) {
   DO(ConsumeEndOfDeclaration("{", &enum_location));
 
-  while (!TryConsumeEndOfDeclaration("}", nullptr)) {
+  while (!TryConsumeEndOfDeclaration("}", NULL)) {
     if (AtEnd()) {
-      RecordError("Reached end of input in enum definition (missing '}').");
+      AddError("Reached end of input in enum definition (missing '}').");
       return false;
     }
 
@@ -2203,7 +2015,7 @@ bool Parser::ParseEnumBlock(EnumDescriptorProto* enum_type,
 bool Parser::ParseEnumStatement(EnumDescriptorProto* enum_type,
                                 const LocationRecorder& enum_location,
                                 const FileDescriptorProto* containing_file) {
-  if (TryConsumeEndOfDeclaration(";", nullptr)) {
+  if (TryConsumeEndOfDeclaration(";", NULL)) {
     // empty statement; ignore
     return true;
   } else if (LookingAt("option")) {
@@ -2301,9 +2113,9 @@ bool Parser::ParseServiceBlock(ServiceDescriptorProto* service,
                                const FileDescriptorProto* containing_file) {
   DO(ConsumeEndOfDeclaration("{", &service_location));
 
-  while (!TryConsumeEndOfDeclaration("}", nullptr)) {
+  while (!TryConsumeEndOfDeclaration("}", NULL)) {
     if (AtEnd()) {
-      RecordError("Reached end of input in service definition (missing '}').");
+      AddError("Reached end of input in service definition (missing '}').");
       return false;
     }
 
@@ -2320,7 +2132,7 @@ bool Parser::ParseServiceBlock(ServiceDescriptorProto* service,
 bool Parser::ParseServiceStatement(ServiceDescriptorProto* service,
                                    const LocationRecorder& service_location,
                                    const FileDescriptorProto* containing_file) {
-  if (TryConsumeEndOfDeclaration(";", nullptr)) {
+  if (TryConsumeEndOfDeclaration(";", NULL)) {
     // empty statement; ignore
     return true;
   } else if (LookingAt("option")) {
@@ -2358,6 +2170,7 @@ bool Parser::ParseServiceMethod(MethodDescriptorProto* method,
                                     DescriptorPool::ErrorCollector::OTHER);
       method->set_client_streaming(true);
       DO(Consume("stream"));
+
     }
     LocationRecorder location(method_location,
                               MethodDescriptorProto::kInputTypeFieldNumber);
@@ -2378,6 +2191,7 @@ bool Parser::ParseServiceMethod(MethodDescriptorProto* method,
                                     DescriptorPool::ErrorCollector::OTHER);
       DO(Consume("stream"));
       method->set_server_streaming(true);
+
     }
     LocationRecorder location(method_location,
                               MethodDescriptorProto::kOutputTypeFieldNumber);
@@ -2405,13 +2219,13 @@ bool Parser::ParseMethodOptions(const LocationRecorder& parent_location,
                                 Message* mutable_options) {
   // Options!
   ConsumeEndOfDeclaration("{", &parent_location);
-  while (!TryConsumeEndOfDeclaration("}", nullptr)) {
+  while (!TryConsumeEndOfDeclaration("}", NULL)) {
     if (AtEnd()) {
-      RecordError("Reached end of input in method options (missing '}').");
+      AddError("Reached end of input in method options (missing '}').");
       return false;
     }
 
-    if (TryConsumeEndOfDeclaration(";", nullptr)) {
+    if (TryConsumeEndOfDeclaration(";", NULL)) {
       // empty statement; ignore
     } else {
       LocationRecorder location(parent_location, optionsFieldNumber);
@@ -2430,22 +2244,12 @@ bool Parser::ParseMethodOptions(const LocationRecorder& parent_location,
 // -------------------------------------------------------------------
 
 bool Parser::ParseLabel(FieldDescriptorProto::Label* label,
-                        const LocationRecorder& field_location) {
+                        const LocationRecorder& field_location,
+                        const FileDescriptorProto* containing_file) {
   if (!LookingAt("optional") && !LookingAt("repeated") &&
       !LookingAt("required")) {
     return false;
   }
-  if (LookingAt("optional") && syntax_identifier_ == "editions") {
-    RecordError(
-        "Label \"optional\" is not supported in editions. By default, all "
-        "singular fields have presence unless features.field_presence is set.");
-  }
-  if (LookingAt("required") && syntax_identifier_ == "editions") {
-    RecordError(
-        "Label \"required\" is not supported in editions, use "
-        "features.field_presence = LEGACY_REQUIRED.");
-  }
-
   LocationRecorder location(field_location,
                             FieldDescriptorProto::kLabelFieldNumber);
   if (TryConsume("optional")) {
@@ -2461,16 +2265,8 @@ bool Parser::ParseLabel(FieldDescriptorProto::Label* label,
 
 bool Parser::ParseType(FieldDescriptorProto::Type* type,
                        std::string* type_name) {
-  const auto& type_names_table = GetTypeNameTable();
-  auto iter = type_names_table.find(input_->current().text);
-  if (iter != type_names_table.end()) {
-    if (syntax_identifier_ == "editions" &&
-        iter->second == FieldDescriptorProto::TYPE_GROUP) {
-      RecordError(
-          "Group syntax is no longer supported in editions. To get group "
-          "behavior you can specify features.message_encoding = DELIMITED on a "
-          "message field.");
-    }
+  TypeNameMap::const_iterator iter = kTypeNames.find(input_->current().text);
+  if (iter != kTypeNames.end()) {
     *type = iter->second;
     input_->Next();
   } else {
@@ -2482,14 +2278,13 @@ bool Parser::ParseType(FieldDescriptorProto::Type* type,
 bool Parser::ParseUserDefinedType(std::string* type_name) {
   type_name->clear();
 
-  const auto& type_names_table = GetTypeNameTable();
-  auto iter = type_names_table.find(input_->current().text);
-  if (iter != type_names_table.end()) {
+  TypeNameMap::const_iterator iter = kTypeNames.find(input_->current().text);
+  if (iter != kTypeNames.end()) {
     // Note:  The only place enum types are allowed is for field types, but
     //   if we are parsing a field type then we would not get here because
     //   primitives are allowed there as well.  So this error message doesn't
     //   need to account for enums.
-    RecordError("Expected message type.");
+    AddError("Expected message type.");
 
     // Pretend to accept this type so that we can go on parsing.
     *type_name = input_->current().text;
@@ -2521,7 +2316,7 @@ bool Parser::ParsePackage(FileDescriptorProto* file,
                           const LocationRecorder& root_location,
                           const FileDescriptorProto* containing_file) {
   if (file->has_package()) {
-    RecordError("Multiple package definitions.");
+    AddError("Multiple package definitions.");
     // Don't append the new package to the old one.  Just replace it.  Not
     // that it really matters since this is an error anyway.
     file->clear_package();
@@ -2592,27 +2387,33 @@ bool SourceLocationTable::Find(
     const Message* descriptor,
     DescriptorPool::ErrorCollector::ErrorLocation location, int* line,
     int* column) const {
-  auto it = location_map_.find({descriptor, location});
-  if (it == location_map_.end()) {
+  const std::pair<int, int>* result =
+      FindOrNull(location_map_, std::make_pair(descriptor, location));
+  if (result == NULL) {
     *line = -1;
     *column = 0;
     return false;
+  } else {
+    *line = result->first;
+    *column = result->second;
+    return true;
   }
-  std::tie(*line, *column) = it->second;
-  return true;
 }
 
 bool SourceLocationTable::FindImport(const Message* descriptor,
-                                     absl::string_view name, int* line,
+                                     const std::string& name, int* line,
                                      int* column) const {
-  auto it = import_location_map_.find({descriptor, std::string(name)});
-  if (it == import_location_map_.end()) {
+  const std::pair<int, int>* result =
+      FindOrNull(import_location_map_, std::make_pair(descriptor, name));
+  if (result == nullptr) {
     *line = -1;
     *column = 0;
     return false;
+  } else {
+    *line = result->first;
+    *column = result->second;
+    return true;
   }
-  std::tie(*line, *column) = it->second;
-  return true;
 }
 
 void SourceLocationTable::Add(
@@ -2635,5 +2436,3 @@ void SourceLocationTable::Clear() { location_map_.clear(); }
 }  // namespace compiler
 }  // namespace protobuf
 }  // namespace google
-
-#include "google/protobuf/port_undef.inc"

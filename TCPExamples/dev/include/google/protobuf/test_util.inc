@@ -1,10 +1,32 @@
-// -*- c++ -*-
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
+// https://developers.google.com/protocol-buffers/
 //
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file or at
-// https://developers.google.com/open-source/licenses/bsd
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//     * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Author: kenton@google.com (Kenton Varda)
 //  Based on original Protocol Buffers design by
@@ -15,10 +37,11 @@
 // within an enclosing namespace and requires header files to be included
 // out of this file.
 
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/message.h>
 #include <gtest/gtest.h>
-#include "absl/log/absl_check.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/message.h"
 
 namespace google {
 namespace protobuf {
@@ -120,7 +143,6 @@ inline void TestUtil::SetOptionalFields(UNITTEST::TestAllTypes* message) {
   message->mutable_optional_import_message()->set_d(120);
   message->mutable_optional_public_import_message()->set_e(126);
   message->mutable_optional_lazy_message()->set_bb(127);
-  message->mutable_optional_unverified_lazy_message()->set_bb(128);
 
   message->set_optional_nested_enum(UNITTEST::TestAllTypes::BAZ);
   message->set_optional_foreign_enum(UNITTEST::FOREIGN_BAZ);
@@ -295,16 +317,7 @@ inline void TestUtil::ModifyRepeatedFields(UNITTEST::TestAllTypes* message) {
 inline void TestUtil::SetOneofFields(UNITTEST::TestAllTypes* message) {
   message->set_oneof_uint32(601);
   message->mutable_oneof_nested_message()->set_bb(602);
-  message->mutable_oneof_lazy_nested_message()->set_bb(605);
   message->set_oneof_string("603");
-#ifndef PROTOBUF_TEST_NO_DESCRIPTORS
-  message->GetReflection()->SetString(
-      message, message->GetDescriptor()->FindFieldByName("oneof_cord"), "606");
-  message->GetReflection()->SetString(
-      message, message->GetDescriptor()->FindFieldByName("oneof_string_piece"),
-      "607");
-#endif  // !PROTOBUF_TEST_NO_DESCRIPTORS
-  // Must be last because tests are expecting it.
   message->set_oneof_bytes("604");
 }
 
@@ -334,7 +347,6 @@ inline void TestUtil::ExpectAllFieldsSet(
   EXPECT_TRUE(message.has_optional_import_message());
   EXPECT_TRUE(message.has_optional_public_import_message());
   EXPECT_TRUE(message.has_optional_lazy_message());
-  EXPECT_TRUE(message.has_optional_unverified_lazy_message());
 
   EXPECT_TRUE(message.optionalgroup().has_a());
   EXPECT_TRUE(message.optional_nested_message().has_bb());
@@ -342,7 +354,6 @@ inline void TestUtil::ExpectAllFieldsSet(
   EXPECT_TRUE(message.optional_import_message().has_d());
   EXPECT_TRUE(message.optional_public_import_message().has_e());
   EXPECT_TRUE(message.optional_lazy_message().has_bb());
-  EXPECT_TRUE(message.optional_unverified_lazy_message().has_bb());
 
   EXPECT_TRUE(message.has_optional_nested_enum());
   EXPECT_TRUE(message.has_optional_foreign_enum());
@@ -375,7 +386,6 @@ inline void TestUtil::ExpectAllFieldsSet(
   EXPECT_EQ(120, message.optional_import_message().d());
   EXPECT_EQ(126, message.optional_public_import_message().e());
   EXPECT_EQ(127, message.optional_lazy_message().bb());
-  EXPECT_EQ(128, message.optional_unverified_lazy_message().bb());
 
   EXPECT_EQ(UNITTEST::TestAllTypes::BAZ, message.optional_nested_enum());
   EXPECT_EQ(UNITTEST::FOREIGN_BAZ, message.optional_foreign_enum());
@@ -546,7 +556,6 @@ inline void TestUtil::ExpectClear(const UNITTEST::TestAllTypes& message) {
   EXPECT_FALSE(message.has_optional_import_message());
   EXPECT_FALSE(message.has_optional_public_import_message());
   EXPECT_FALSE(message.has_optional_lazy_message());
-  EXPECT_FALSE(message.has_optional_unverified_lazy_message());
 
   EXPECT_FALSE(message.has_optional_nested_enum());
   EXPECT_FALSE(message.has_optional_foreign_enum());
@@ -579,7 +588,6 @@ inline void TestUtil::ExpectClear(const UNITTEST::TestAllTypes& message) {
   EXPECT_FALSE(message.optional_import_message().has_d());
   EXPECT_FALSE(message.optional_public_import_message().has_e());
   EXPECT_FALSE(message.optional_lazy_message().has_bb());
-  EXPECT_FALSE(message.optional_unverified_lazy_message().has_bb());
 
   EXPECT_EQ(0, message.optionalgroup().a());
   EXPECT_EQ(0, message.optional_nested_message().bb());
@@ -587,7 +595,6 @@ inline void TestUtil::ExpectClear(const UNITTEST::TestAllTypes& message) {
   EXPECT_EQ(0, message.optional_import_message().d());
   EXPECT_EQ(0, message.optional_public_import_message().e());
   EXPECT_EQ(0, message.optional_lazy_message().bb());
-  EXPECT_EQ(0, message.optional_unverified_lazy_message().bb());
 
   // Enums without defaults are set to the first value in the enum.
   EXPECT_EQ(UNITTEST::TestAllTypes::FOO, message.optional_nested_enum());
@@ -980,9 +987,6 @@ inline void TestUtil::SetAllExtensions(UNITTEST::TestAllExtensions* message) {
       ->set_e(126);
   message->MutableExtension(UNITTEST::optional_lazy_message_extension)
       ->set_bb(127);
-  message
-      ->MutableExtension(UNITTEST::optional_unverified_lazy_message_extension)
-      ->set_bb(128);
 
   // -----------------------------------------------------------------
 
@@ -1100,7 +1104,7 @@ inline void TestUtil::SetOneofFields(UNITTEST::TestAllExtensions* message) {
 
 inline void TestUtil::SetAllFieldsAndExtensions(
     UNITTEST::TestFieldOrderings* message) {
-  ABSL_CHECK(message);
+  GOOGLE_CHECK(message);
   message->set_my_int(1);
   message->set_my_string("foo");
   message->set_my_float(1.0);
@@ -1179,8 +1183,6 @@ inline void TestUtil::ExpectAllExtensionsSet(
   EXPECT_TRUE(
       message.HasExtension(UNITTEST::optional_public_import_message_extension));
   EXPECT_TRUE(message.HasExtension(UNITTEST::optional_lazy_message_extension));
-  EXPECT_TRUE(message.HasExtension(
-      UNITTEST::optional_unverified_lazy_message_extension));
 
   EXPECT_TRUE(message.GetExtension(UNITTEST::optionalgroup_extension).has_a());
   EXPECT_TRUE(message.GetExtension(UNITTEST::optional_nested_message_extension)
@@ -1194,9 +1196,6 @@ inline void TestUtil::ExpectAllExtensionsSet(
           .has_e());
   EXPECT_TRUE(
       message.GetExtension(UNITTEST::optional_lazy_message_extension).has_bb());
-  EXPECT_TRUE(
-      message.GetExtension(UNITTEST::optional_unverified_lazy_message_extension)
-          .has_bb());
 
   EXPECT_TRUE(message.HasExtension(UNITTEST::optional_nested_enum_extension));
   EXPECT_TRUE(message.HasExtension(UNITTEST::optional_foreign_enum_extension));
@@ -1249,10 +1248,6 @@ inline void TestUtil::ExpectAllExtensionsSet(
   EXPECT_EQ(
       127,
       message.GetExtension(UNITTEST::optional_lazy_message_extension).bb());
-  EXPECT_EQ(
-      128,
-      message.GetExtension(UNITTEST::optional_unverified_lazy_message_extension)
-          .bb());
 
   // -----------------------------------------------------------------
 
@@ -1481,8 +1476,6 @@ inline void TestUtil::ExpectExtensionsClear(
   EXPECT_FALSE(
       message.HasExtension(UNITTEST::optional_public_import_message_extension));
   EXPECT_FALSE(message.HasExtension(UNITTEST::optional_lazy_message_extension));
-  EXPECT_FALSE(message.HasExtension(
-      UNITTEST::optional_unverified_lazy_message_extension));
 
   EXPECT_FALSE(message.HasExtension(UNITTEST::optional_nested_enum_extension));
   EXPECT_FALSE(message.HasExtension(UNITTEST::optional_foreign_enum_extension));
@@ -1522,9 +1515,6 @@ inline void TestUtil::ExpectExtensionsClear(
           .has_e());
   EXPECT_FALSE(
       message.GetExtension(UNITTEST::optional_lazy_message_extension).has_bb());
-  EXPECT_FALSE(
-      message.GetExtension(UNITTEST::optional_unverified_lazy_message_extension)
-          .has_bb());
 
   EXPECT_EQ(0, message.GetExtension(UNITTEST::optionalgroup_extension).a());
   EXPECT_EQ(
@@ -1541,10 +1531,6 @@ inline void TestUtil::ExpectExtensionsClear(
           .e());
   EXPECT_EQ(
       0, message.GetExtension(UNITTEST::optional_lazy_message_extension).bb());
-  EXPECT_EQ(
-      0,
-      message.GetExtension(UNITTEST::optional_unverified_lazy_message_extension)
-          .bb());
 
   // Enums without defaults are set to the first value in the enum.
   EXPECT_EQ(UNITTEST::TestAllTypes::FOO,
@@ -1921,7 +1907,7 @@ inline void TestUtil::ExpectUnpackedExtensionsSet(
             message.GetExtension(UNITTEST::unpacked_sfixed64_extension, 1));
   EXPECT_EQ(711, message.GetExtension(UNITTEST::unpacked_float_extension, 1));
   EXPECT_EQ(712, message.GetExtension(UNITTEST::unpacked_double_extension, 1));
-  EXPECT_FALSE(message.GetExtension(UNITTEST::unpacked_bool_extension, 1));
+  EXPECT_EQ(false, message.GetExtension(UNITTEST::unpacked_bool_extension, 1));
   EXPECT_EQ(UNITTEST::FOREIGN_BAZ,
             message.GetExtension(UNITTEST::unpacked_enum_extension, 1));
 }
@@ -2329,7 +2315,7 @@ inline void TestUtil::ExpectRepeatedExtensionsSwapped(
 }
 
 inline void TestUtil::SetOneof1(UNITTEST::TestOneof2* message) {
-  message->mutable_foo_lazy_message()->set_moo_int(100);
+  message->mutable_foo_lazy_message()->set_qux_int(100);
   message->set_bar_string("101");
   message->set_baz_int(102);
   message->set_baz_string("103");
@@ -2346,7 +2332,7 @@ inline void TestUtil::ExpectOneofSet1(const UNITTEST::TestOneof2& message) {
   ExpectAtMostOneFieldSetInOneof(message);
 
   EXPECT_TRUE(message.has_foo_lazy_message());
-  EXPECT_TRUE(message.foo_lazy_message().has_moo_int());
+  EXPECT_TRUE(message.foo_lazy_message().has_qux_int());
 
   EXPECT_TRUE(message.has_bar_string());
   EXPECT_TRUE(message.has_baz_int());
@@ -2354,7 +2340,7 @@ inline void TestUtil::ExpectOneofSet1(const UNITTEST::TestOneof2& message) {
 
   ASSERT_EQ(0, message.foo_lazy_message().corge_int_size());
 
-  EXPECT_EQ(100, message.foo_lazy_message().moo_int());
+  EXPECT_EQ(100, message.foo_lazy_message().qux_int());
   EXPECT_EQ("101", message.bar_string());
   EXPECT_EQ(102, message.baz_int());
   EXPECT_EQ("103", message.baz_string());
@@ -2382,7 +2368,6 @@ inline void TestUtil::ExpectOneofClear(const UNITTEST::TestOneof2& message) {
   EXPECT_FALSE(message.has_foo_message());
   EXPECT_FALSE(message.has_foogroup());
   EXPECT_FALSE(message.has_foo_lazy_message());
-  EXPECT_FALSE(message.has_foo_bytes_cord());
 
   EXPECT_FALSE(message.has_bar_int());
   EXPECT_FALSE(message.has_bar_string());
@@ -2406,7 +2391,6 @@ inline void TestUtil::ExpectAtMostOneFieldSetInOneof(
   if (message.has_foo_message()) count++;
   if (message.has_foogroup()) count++;
   if (message.has_foo_lazy_message()) count++;
-  if (message.has_foo_bytes_cord()) count++;
   EXPECT_LE(count, 1);
   count = 0;
   if (message.has_bar_int()) count++;

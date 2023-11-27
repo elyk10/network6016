@@ -1,0 +1,10 @@
+﻿  main_server.cpp
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPServer\main_server.cpp(95,9): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'SOCKET'
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPServer\main_server.cpp(95,9): message : consider using '%lld' in the format string
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPServer\main_server.cpp(95,9): message : consider using '%Id' in the format string
+C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\TCPServer\main_server.cpp(95,9): message : consider using '%I64d' in the format string
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 21 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  TCPServer.vcxproj -> C:\Users\Kyle\Documents\fanshawe\networking\proj2\network6016\TCPExamples\x64\Release\TCPServer.exe
